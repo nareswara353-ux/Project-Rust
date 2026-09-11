@@ -4,6 +4,12 @@ pub struct KeyValueStore {
     data: HashMap<String, String>,
 }
 
+impl Default for KeyValueStore {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl KeyValueStore {
     pub fn new() -> Self {
         Self {

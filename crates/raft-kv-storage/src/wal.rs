@@ -1,14 +1,14 @@
 use raft_kv_core::{Index, LogEntry, Result};
 
 pub struct WriteAheadLog {
-    path: String,
+    _path: String,
     entries: Vec<LogEntry>,
 }
 
 impl WriteAheadLog {
     pub fn new(path: &str) -> Result<Self> {
         Ok(Self {
-            path: path.to_string(),
+            _path: path.to_string(),
             entries: Vec::new(),
         })
     }
