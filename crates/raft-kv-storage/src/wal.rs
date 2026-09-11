@@ -9,25 +9,26 @@ const CHECKSUM_BYTES: usize = 4;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct WalRecord {
-    entry: LogEntry,
     checksum: u32,
+    entry: LogEntry,
 }
 
 pub struct WriteAheadLog {
     base_path: PathBuf,
-    current_segment: u64,
+    current_segment_id: u64,
     current_file: Option<BufWriter<File>>,
     entries_count: u64,
 }
 
 impl WriteAheadLog {
-    pub fn new<P: AsRef<Path>>(base_path: P) -> Result<Self> {
-        let path = base_path.as_ref().to_path_buf();
-        fs::create_dir_all(&path).map_err(|e| RaftError::Storage(e.to_string()))?;
+    pub fn new(path: &str) -> Result<Self> {
+        let base_path = PathBuf::from(path);
+        fs::create_dir_all(&base_path)
+            .map_err(|e| RaftError::Storage(format!("Create dir error: {}", e)))?;
 
         let mut wal = Self {
-            base_path: path,
-            current_segment: 0,
+            base_path,
+            current_segment_id: 0,
             current_file: None,
             entries_count: 0,
         };
@@ -42,25 +43,25 @@ impl WriteAheadLog {
     }
 
     fn open_current_segment(&mut self) -> Result<()> {
-        let path = self.segment_path(self.current_segment);
+        let path = self.segment_path(self.current_segment_id);
         let file = OpenOptions::new()
             .create(true)
             .append(true)
+            .read(true)
             .open(&path)
-            .map_err(|e| RaftError::Storage(e.to_string()))?;
+            .map_err(|e| RaftError::Storage(format!("Open segment error: {}", e)))?;
 
         self.current_file = Some(BufWriter::new(file));
         Ok(())
     }
 
-    fn compute_checksum(entry: &LogEntry) -> u32 {
-        let bytes = bincode::serialize(entry).unwrap_or_default();
-        crc32fast::hash(&bytes)
-    }
-
     pub fn append(&mut self, entry: LogEntry) -> Result<Index> {
-        let checksum = Self::compute_checksum(&entry);
-        let record = WalRecord { entry, checksum };
+        let record = WalRecord {
+            checksum: crc32fast::hash(&bincode::serialize(&entry).map_err(
+                |e| RaftError::Storage(format!("Serialization error: {}", e)),
+            )?),
+            entry,
+        };
 
         let bytes = bincode::serialize(&record)
             .map_err(|e| RaftError::Storage(format!("Serialization error: {}", e)))?;
@@ -80,31 +81,85 @@ impl WriteAheadLog {
         Ok(self.entries_count)
     }
 
-    pub fn read_all(&self) -> Result<Vec<LogEntry>> {
-        let mut entries = Vec::new();
-        let mut segment_id = 0;
+    pub fn get(&self, index: Index) -> Option<LogEntry> {
+        if index == 0 || index > self.entries_count {
+            return None;
+        }
 
-        loop {
-            let path = self.segment_path(segment_id);
-            if !path.exists() {
+        let segment_id = 0;
+        let path = self.segment_path(segment_id);
+        if !path.exists() {
+            return None;
+        }
+
+        let file = File::open(&path).ok()?;
+        let mut reader = BufReader::new(file);
+        let mut buffer = Vec::new();
+        reader
+            .read_to_end(&mut buffer)
+            .map_err(|e| RaftError::Storage(format!("Read segment error: {}", e)))
+            .ok()?;
+
+        let mut offset = 0;
+        let mut current_index = 1;
+
+        while offset + CHECKSUM_BYTES < buffer.len() {
+            if offset + 4 > buffer.len() {
+                break;
+            }
+            let record_size = u32::from_le_bytes([
+                buffer[offset],
+                buffer[offset + 1],
+                buffer[offset + 2],
+                buffer[offset + 3],
+            ]) as usize;
+
+            if offset + CHECKSUM_BYTES + record_size > buffer.len() {
                 break;
             }
 
-            let file = File::open(&path)
-                .map_err(|e| RaftError::Storage(format!("Open segment error: {}", e)))?;
+            if current_index == index {
+                let record_bytes =
+                    &buffer[offset + CHECKSUM_BYTES..offset + CHECKSUM_BYTES + record_size];
+                let record: WalRecord = bincode::deserialize(record_bytes)
+                    .map_err(|e| RaftError::Storage(format!("Deserialize error: {}", e)))
+                    .ok()?;
 
-            let mut reader = BufReader::new(file);
-            let mut buffer = Vec::new();
-            reader
-                .read_to_end(&mut buffer)
-                .map_err(|e| RaftError::Storage(format!("Read segment error: {}", e)))?;
-
-            let mut offset = 0;
-            while offset < buffer.len() {
-                if offset + CHECKSUM_BYTES > buffer.len() {
-                    break;
+                let computed_checksum = crc32fast::hash(record_bytes);
+                if computed_checksum != record.checksum {
+                    return None;
                 }
 
+                return Some(record.entry);
+            }
+
+            offset += CHECKSUM_BYTES + record_size;
+            current_index += 1;
+        }
+
+        None
+    }
+
+    pub fn truncate_after(&mut self, index: Index) -> Result<()> {
+        self.entries_count = index;
+        let segment_id = 0;
+        let path = self.segment_path(segment_id);
+        
+        let mut entries_to_keep = Vec::new();
+        if path.exists() {
+            let file = File::open(&path)
+                .map_err(|e| RaftError::Storage(format!("Open truncation error: {}", e)))?;
+            let mut reader = BufReader::new(file);
+            let mut buffer = Vec::new();
+            reader.read_to_end(&mut buffer)?;
+
+            let mut offset = 0;
+            let mut current_index = 1;
+
+            while offset + CHECKSUM_BYTES < buffer.len() {
+                if offset + 4 > buffer.len() {
+                    break;
+                }
                 let record_size = u32::from_le_bytes([
                     buffer[offset],
                     buffer[offset + 1],
@@ -116,68 +171,37 @@ impl WriteAheadLog {
                     break;
                 }
 
-                let record_bytes =
-                    &buffer[offset + CHECKSUM_BYTES..offset + CHECKSUM_BYTES + record_size];
-                let record: WalRecord = bincode::deserialize(record_bytes)
-                    .map_err(|e| RaftError::Storage(format!("Deserialize error: {}", e)))?;
-
-                let computed_checksum = Self::compute_checksum(&record.entry);
-                if computed_checksum != record.checksum {
-                    return Err(RaftError::Storage("Checksum mismatch detected".into()));
+                if current_index <= index {
+                    entries_to_keep.extend_from_slice(&buffer[offset..offset + CHECKSUM_BYTES + record_size]);
+                } else {
+                    break;
                 }
 
-                entries.push(record.entry);
                 offset += CHECKSUM_BYTES + record_size;
-            }
-
-            segment_id += 1;
-        }
-
-        Ok(entries)
-    }
-
-    pub fn truncate_after(&mut self, index: Index) -> Result<()> {
-        let mut all_entries = self.read_all()?;
-        if index >= all_entries.len() as u64 {
-            return Ok(());
-        }
-
-        all_entries.truncate(index as usize);
-
-        self.current_file = None;
-        for i in 0..=self.current_segment {
-            let path = self.segment_path(i);
-            if path.exists() {
-                fs::remove_file(&path)
-                    .map_err(|e| RaftError::Storage(format!("Remove segment error: {}", e)))?;
+                current_index += 1;
             }
         }
 
-        self.current_segment = 0;
-        self.entries_count = 0;
+        fs::write(&path, &entries_to_keep)
+            .map_err(|e| RaftError::Storage(format!("Truncate write error: {}", e)))?;
+        
         self.open_current_segment()?;
-
-        for entry in all_entries {
-            self.append(entry)?;
-        }
-
         Ok(())
     }
 
     pub fn sync(&mut self) -> Result<()> {
         if let Some(writer) = &mut self.current_file {
             writer
-                .sync_all()
-                .map_err(|e| RaftError::Storage(format!("Sync error: {}", e)))?;
+                .flush()
+                .map_err(|e| RaftError::Storage(format!("Flush sync error: {}", e)))?;
         }
         Ok(())
     }
-}
 
-impl Drop for WriteAheadLog {
-    fn drop(&mut self) {
-        if let Some(writer) = &mut self.current_file {
-            let _ = writer.flush();
-        }
+    pub fn rotate(&mut self) -> Result<()> {
+        self.sync()?;
+        self.current_segment_id += 1;
+        self.open_current_segment()?;
+        Ok(())
     }
 }
