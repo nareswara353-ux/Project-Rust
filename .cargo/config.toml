@@ -1,11 +1,18 @@
 [alias]
-xcheck = "fmt --all -- --check && clippy --workspace --all-targets -- -D warnings && build --release --workspace && test --workspace"
-
-[target.x86_64-unknown-linux-gnu]
-rustflags = ["-C", "link-arg=-s"]
-
-[target.aarch64-unknown-linux-gnu]
-rustflags = ["-C", "link-arg=-s"]
+lint = "clippy --workspace --all-targets -- -D warnings"
+test-all = "test --workspace --verbose"
+run-dev = "run --bin raft-kv"
+build-release = "build --release --workspace"
 
 [build]
 target-dir = "target"
+
+[target.x86_64-unknown-linux-gnu]
+rustflags = ["-C", "link-arg=-fuse-ld=lld"]
+
+[target.aarch64-apple-darwin]
+rustflags = ["-C", "link-arg=-fuse-ld=lld"]
+
+[env]
+RUST_LOG = "info"
+RUST_BACKTRACE = "1"
