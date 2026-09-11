@@ -42,9 +42,8 @@ impl Snapshot {
 
         let file = File::create(&path)?;
         let mut writer = BufWriter::new(file);
-        let bytes = bincode::serialize(self).map_err(|e| {
-            std::io::Error::other(format!("Serialize error: {}", e))
-        })?;
+        let bytes = bincode::serialize(self)
+            .map_err(|e| std::io::Error::other(format!("Serialize error: {}", e)))?;
         writer.write_all(&bytes)?;
         writer.flush()?;
         Ok(())
@@ -61,9 +60,8 @@ impl Snapshot {
         let mut buffer = Vec::new();
         reader.read_to_end(&mut buffer)?;
 
-        let snapshot: Self = bincode::deserialize(&buffer).map_err(|e| {
-            std::io::Error::other(format!("Deserialize error: {}", e))
-        })?;
+        let snapshot: Self = bincode::deserialize(&buffer)
+            .map_err(|e| std::io::Error::other(format!("Deserialize error: {}", e)))?;
         Ok(Some(snapshot))
     }
 
