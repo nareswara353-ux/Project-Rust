@@ -1,4 +1,4 @@
-use raft_kv_core::{Index, LogEntry, Result, RaftError};
+use raft_kv_core::{Index, LogEntry, RaftError, Result};
 use serde::{Deserialize, Serialize};
 use std::fs::{self, File, OpenOptions};
 use std::io::{BufReader, BufWriter, Read, Write};
@@ -37,7 +37,8 @@ impl WriteAheadLog {
     }
 
     fn segment_path(&self, segment_id: u64) -> PathBuf {
-        self.base_path.join(format!("{}{:020}", SEGMENT_PREFIX, segment_id))
+        self.base_path
+            .join(format!("{}{:020}", SEGMENT_PREFIX, segment_id))
     }
 
     fn open_current_segment(&mut self) -> Result<()> {
@@ -65,9 +66,11 @@ impl WriteAheadLog {
             .map_err(|e| RaftError::Storage(format!("Serialization error: {}", e)))?;
 
         if let Some(writer) = &mut self.current_file {
-            writer.write_all(&bytes)
+            writer
+                .write_all(&bytes)
                 .map_err(|e| RaftError::Storage(format!("Write error: {}", e)))?;
-            writer.flush()
+            writer
+                .flush()
                 .map_err(|e| RaftError::Storage(format!("Flush error: {}", e)))?;
         } else {
             return Err(RaftError::Storage("WAL file not open".into()));
@@ -92,7 +95,8 @@ impl WriteAheadLog {
 
             let mut reader = BufReader::new(file);
             let mut buffer = Vec::new();
-            reader.read_to_end(&mut buffer)
+            reader
+                .read_to_end(&mut buffer)
                 .map_err(|e| RaftError::Storage(format!("Read segment error: {}", e)))?;
 
             let mut offset = 0;
@@ -112,7 +116,8 @@ impl WriteAheadLog {
                     break;
                 }
 
-                let record_bytes = &buffer[offset + CHECKSUM_BYTES..offset + CHECKSUM_BYTES + record_size];
+                let record_bytes =
+                    &buffer[offset + CHECKSUM_BYTES..offset + CHECKSUM_BYTES + record_size];
                 let record: WalRecord = bincode::deserialize(record_bytes)
                     .map_err(|e| RaftError::Storage(format!("Deserialize error: {}", e)))?;
 
@@ -161,7 +166,8 @@ impl WriteAheadLog {
 
     pub fn sync(&mut self) -> Result<()> {
         if let Some(writer) = &mut self.current_file {
-            writer.sync_all()
+            writer
+                .sync_all()
                 .map_err(|e| RaftError::Storage(format!("Sync error: {}", e)))?;
         }
         Ok(())
