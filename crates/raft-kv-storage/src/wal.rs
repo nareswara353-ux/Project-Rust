@@ -57,9 +57,10 @@ impl WriteAheadLog {
 
     pub fn append(&mut self, entry: LogEntry) -> Result<Index> {
         let record = WalRecord {
-            checksum: crc32fast::hash(&bincode::serialize(&entry).map_err(
-                |e| RaftError::Storage(format!("Serialization error: {}", e)),
-            )?),
+            checksum: crc32fast::hash(
+                &bincode::serialize(&entry)
+                    .map_err(|e| RaftError::Storage(format!("Serialization error: {}", e)))?,
+            ),
             entry,
         };
 
@@ -144,7 +145,7 @@ impl WriteAheadLog {
         self.entries_count = index;
         let segment_id = 0;
         let path = self.segment_path(segment_id);
-        
+
         let mut entries_to_keep = Vec::new();
         if path.exists() {
             let file = File::open(&path)
@@ -172,7 +173,8 @@ impl WriteAheadLog {
                 }
 
                 if current_index <= index {
-                    entries_to_keep.extend_from_slice(&buffer[offset..offset + CHECKSUM_BYTES + record_size]);
+                    entries_to_keep
+                        .extend_from_slice(&buffer[offset..offset + CHECKSUM_BYTES + record_size]);
                 } else {
                     break;
                 }
@@ -184,7 +186,7 @@ impl WriteAheadLog {
 
         fs::write(&path, &entries_to_keep)
             .map_err(|e| RaftError::Storage(format!("Truncate write error: {}", e)))?;
-        
+
         self.open_current_segment()?;
         Ok(())
     }
