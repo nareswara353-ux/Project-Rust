@@ -1,4 +1,4 @@
-use crate::types::{Index, LogEntry, NodeId, State, Term, Command};
+use crate::types::{Command, Index, LogEntry, NodeId, State, Term};
 use std::time::{Duration, Instant};
 
 pub struct RaftNode {
