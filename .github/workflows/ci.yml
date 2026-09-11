@@ -1,60 +1,43 @@
-name: CI Pipeline
+name: Rust CI
 
 on:
   push:
-    branches:
-      - main
+    branches: [ "main" ]
   pull_request:
-    branches:
-      - main
+    branches: [ "main" ]
 
 env:
   CARGO_TERM_COLOR: always
-  RUSTFLAGS: "-D warnings"
 
 jobs:
-  lint-and-format:
-    name: Lint and Format
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout sources
-        uses: actions/checkout@v4
-
-      - name: Install stable toolchain
-        uses: dtolnay/rust-action@stable
-        with:
-          components: rustfmt, clippy
-
-      - name: Check formatting
-        run: cargo fmt --all -- --check
-
-      - name: Run clippy
-        run: cargo clippy --workspace --all-targets -- -D warnings
-
   build-and-test:
-    name: Build and Test
     runs-on: ubuntu-latest
+
     steps:
-      - name: Checkout sources
-        uses: actions/checkout@v4
+    - uses: actions/checkout@v4
 
-      - name: Install stable toolchain
-        uses: dtolnay/rust-action@stable
+    - name: Install Rust toolchain
+      uses: dtolnay/rust-toolchain@stable
+      with:
+        components: rustfmt, clippy
 
-      - name: Cache cargo registry
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+    - name: Cache cargo registry
+      uses: actions/cache@v4
+      with:
+        path: |
+          ~/.cargo/registry
+          ~/.cargo/git
+          target
+        key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
 
-      - name: Build workspace
-        run: cargo build --workspace --release
+    - name: Check formatting
+      run: cargo fmt --all -- --check
 
-      - name: Run unit tests
-        run: cargo test --workspace --lib
+    - name: Run Clippy lints
+      run: cargo clippy --workspace --all-targets -- -D warnings
 
-      - name: Run integration tests
-        run: cargo test --workspace --test '*'
+    - name: Build release
+      run: cargo build --release --workspace
+
+    - name: Run tests
+      run: cargo test --workspace --verbose
