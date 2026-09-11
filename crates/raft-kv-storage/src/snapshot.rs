@@ -11,7 +11,7 @@ pub struct Snapshot {
     pub last_index: Index,
     pub last_term: Term,
     pub cluster_config: Vec<NodeId>,
-    pub data: Vec<u8>,
+    pub  Vec<u8>,
 }
 
 impl Snapshot {
@@ -20,7 +20,7 @@ impl Snapshot {
             last_index,
             last_term,
             cluster_config: Vec::new(),
-            data: Vec::new(),
+             Vec::new(),
         }
     }
 
@@ -36,12 +36,14 @@ impl Snapshot {
 
     pub fn save(&self, snapshot_dir: &str) -> Result<(), std::io::Error> {
         let path = PathBuf::from(snapshot_dir).join(SNAPSHOT_FILE);
-        fs::create_dir_all(&path.parent().unwrap())?;
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent)?;
+        }
 
         let file = File::create(&path)?;
         let mut writer = BufWriter::new(file);
         let bytes = bincode::serialize(self).map_err(|e| {
-            std::io::Error::new(std::io::ErrorKind::Other, format!("Serialize error: {}", e))
+            std::io::Error::other(format!("Serialize error: {}", e))
         })?;
         writer.write_all(&bytes)?;
         writer.flush()?;
@@ -60,10 +62,7 @@ impl Snapshot {
         reader.read_to_end(&mut buffer)?;
 
         let snapshot: Self = bincode::deserialize(&buffer).map_err(|e| {
-            std::io::Error::new(
-                std::io::ErrorKind::Other,
-                format!("Deserialize error: {}", e),
-            )
+            std::io::Error::other(format!("Deserialize error: {}", e))
         })?;
         Ok(Some(snapshot))
     }
