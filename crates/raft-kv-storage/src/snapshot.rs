@@ -11,7 +11,7 @@ pub struct Snapshot {
     pub last_index: Index,
     pub last_term: Term,
     pub cluster_config: Vec<NodeId>,
-    pub  Vec<u8>,
+    pub data: Vec<u8>,
 }
 
 impl Snapshot {
@@ -20,7 +20,7 @@ impl Snapshot {
             last_index,
             last_term,
             cluster_config: Vec::new(),
-             Vec::new(),
+            data: Vec::new(),
         }
     }
 
