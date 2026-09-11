@@ -1,4 +1,4 @@
-use raft_kv_core::{Index, LogEntry, RaftError, Result};
+use raft_kv_core::{Index, LogEntry, Result};
 
 pub struct WriteAheadLog {
     path: String,

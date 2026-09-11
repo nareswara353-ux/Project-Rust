@@ -1,4 +1,4 @@
-use raft_kv_core::{Index, NodeId, Term};
+use raft_kv_core::{Index, Term};
 
 pub struct Snapshot {
     pub last_index: Index,

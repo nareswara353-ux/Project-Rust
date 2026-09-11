@@ -4,4 +4,4 @@ pub mod types;
 
 pub use error::{RaftError, Result};
 pub use raft::RaftNode;
-pub use types::{Command, LogEntry, NodeId, State, Term};
+pub use types::{Command, Index, LogEntry, NodeId, State, Term};
