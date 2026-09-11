@@ -1,5 +1,5 @@
-use crate::types::{NodeId, State, LogEntry};
 use crate::error::Result;
+use crate::types::{LogEntry, NodeId, State};
 
 pub struct RaftNode {
     pub id: NodeId,

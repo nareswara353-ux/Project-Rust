@@ -1,7 +1,7 @@
-pub mod wal;
 pub mod snapshot;
 pub mod store;
+pub mod wal;
 
-pub use wal::WriteAheadLog;
 pub use snapshot::Snapshot;
 pub use store::KeyValueStore;
+pub use wal::WriteAheadLog;
