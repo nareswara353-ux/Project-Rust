@@ -1,0 +1,11 @@
+[alias]
+xcheck = "fmt --all -- --check && clippy --workspace --all-targets -- -D warnings && build --release --workspace && test --workspace"
+
+[target.x86_64-unknown-linux-gnu]
+rustflags = ["-C", "link-arg=-s"]
+
+[target.aarch64-unknown-linux-gnu]
+rustflags = ["-C", "link-arg=-s"]
+
+[build]
+target-dir = "target"
