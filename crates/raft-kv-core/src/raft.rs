@@ -1,5 +1,5 @@
-use crate::types::{NodeId, State, LogEntry, Term, Index};
-use crate::error::{Result, RaftError};
+use crate::error::{RaftError, Result};
+use crate::types::{Index, LogEntry, NodeId, State, Term};
 
 pub struct RaftNode {
     pub id: NodeId,
@@ -66,7 +66,11 @@ impl RaftNode {
 
     pub fn get_entry(&self, index: Index) -> Option<&LogEntry> {
         if index == 0 {
-            return Some(&LogEntry { term: 0, index: 0, command: Command::Noop });
+            return Some(&LogEntry {
+                term: 0,
+                index: 0,
+                command: Command::Noop,
+            });
         }
         self.log.get((index - 1) as usize)
     }
