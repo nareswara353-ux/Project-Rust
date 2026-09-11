@@ -60,7 +60,10 @@ impl Snapshot {
         reader.read_to_end(&mut buffer)?;
 
         let snapshot: Self = bincode::deserialize(&buffer).map_err(|e| {
-            std::io::Error::new(std::io::ErrorKind::Other, format!("Deserialize error: {}", e))
+            std::io::Error::new(
+                std::io::ErrorKind::Other,
+                format!("Deserialize error: {}", e),
+            )
         })?;
         Ok(Some(snapshot))
     }
