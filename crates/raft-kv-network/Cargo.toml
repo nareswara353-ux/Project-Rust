@@ -1,0 +1,19 @@
+[package]
+name = "raft-kv-network"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[dependencies]
+raft-kv-core = { path = "../raft-kv-core" }
+tokio.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+bytes.workspace = true
+async-trait.workspace = true
+
+[lints.clippy]
+all = "deny"

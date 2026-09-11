@@ -1,0 +1,23 @@
+[package]
+name = "raft-kv-cli"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "raft-kv"
+path = "src/main.rs"
+
+[dependencies]
+raft-kv-core = { path = "../raft-kv-core" }
+raft-kv-storage = { path = "../raft-kv-storage" }
+raft-kv-network = { path = "../raft-kv-network" }
+tokio.workspace = true
+clap.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+uuid.workspace = true
+
+[lints.clippy]
+all = "deny"
