@@ -84,25 +84,24 @@ impl<S: Storage + 'static> Raft<S> {
                                 drop(v);
                                 if won && s.role == Role::Candidate {
                                     s.become_leader();
-                                    info!(
-                                        "Node {} became leader for term {}",
-                                        s.id, s.current_term
-                                    );
+                                    info!("Node {} became leader for term {}", s.id, s.current_term);
                                 }
                             }
-                        } else if response.term > s.current_term {
-                            // Lock ulang di sini agar 's' valid
-                            let mut s = state_arc.write().await;
-                            if response.term > s.current_term && s.role != Role::Leader {
-                                s.current_term = response.term;
-                                s.role = Role::Follower;
-                                s.voted_for = None;
-                                let _ = storage.set_current_term(s.current_term).await;
+                        }
+                        if response.term > s.current_term {
+                            let mut s_follower = state_arc.write().await;
+                            if s_follower.role != Role::Leader && response.term > s_follower.current_term {
+                                s_follower.current_term = response.term;
+                                s_follower.role = Role::Follower;
+                                s_follower.voted_for = None;
+                                let _ = storage.set_current_term(s_follower.current_term).await;
                                 let _ = storage.set_voted_for(None).await;
                             }
                         }
                     }
                     Err(e) => warn!("Failed to request vote from {}: {}", peer_id, e),
+                }
+            });
                 }
             });
         }
@@ -327,16 +326,16 @@ impl<S: Storage + 'static> Raft<S> {
                                     s.commit_index = max(s.commit_index, index);
                                 }
                             }
-                        } else if response.term > s.current_term {
-                            // Lock ulang di sini
-                            let mut s = state_clone.write().await;
-                            if response.term > s.current_term && s.role != Role::Leader {
-                                s.current_term = response.term;
-                                s.role = Role::Follower;
-                                s.voted_for = None;
-                                let _ = storage.set_current_term(s.current_term).await;
+                        if response.term > s.current_term {
+                            let mut s_follower = state_clone.write().await;
+                            if s_follower.role != Role::Leader && response.term > s_follower.current_term {
+                                s_follower.current_term = response.term;
+                                s_follower.role = Role::Follower;
+                                s_follower.voted_for = None;
+                                let _ = storage.set_current_term(s_follower.current_term).await;
                                 let _ = storage.set_voted_for(None).await;
                             }
+                        }
                         }
                     }
                     Err(e) => warn!("Failed to replicate to {}: {}", peer_id, e),
