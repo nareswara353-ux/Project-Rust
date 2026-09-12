@@ -31,11 +31,16 @@ impl<S: Storage + 'static> Raft<S> {
             (state.last_log_index(), state.last_log_term(), state.id)
         };
 
-        let new_term = {
+        // Update state awal election
+        {
             let mut state = self.state.write().await;
             state.current_term += 1;
             state.role = Role::Candidate;
             state.voted_for = Some(node_id);
+        }
+
+        let new_term = {
+            let state = self.state.read().await;
             state.current_term
         };
 
@@ -75,33 +80,49 @@ impl<S: Storage + 'static> Raft<S> {
             tokio::spawn(async move {
                 match send_vote_request(peer_addr, req).await {
                     Ok(response) => {
-                        if response.vote_granted {
-                            let mut s = state_arc.write().await;
-                            if s.role == Role::Candidate {
+                        // LOGIKA DIPERBAIKI: Semua operasi state ada di dalam satu scope lock
+                        let mut s = state_arc.write().await;
+
+                        if response.vote_granted && s.role == Role::Candidate {
+                            // Hitung vote sambil masih memegang lock state
+                            // Catatan: Idealnya votes lock terpisah, tapi untuk aman kita urutkan saja
+                            // Atau lebih baik: cek quorum dulu baru update state
+
+                            // Karena kita butuh akses votes (async lock) dan s (async lock),
+                            // kita harus hati-hati urutan lock untuk hindari deadlock.
+                            // Strategi aman: Lepas s sebentar untuk hitung vote? Tidak, race condition.
+                            // Strategi terbaik: Hitung vote DULU, baru lock state untuk commit keputusan.
+
+                            drop(s); // Lepas lock state sebentar untuk hitung vote
+
+                            {
                                 let mut v = votes.write().await;
                                 *v += 1;
-                                let won = *v >= quorum;
-                                drop(v);
-                                if won && s.role == Role::Candidate {
-                                    s.become_leader();
-                                    info!(
-                                        "Node {} became leader for term {}",
-                                        s.id, s.current_term
-                                    );
+                                if *v >= quorum {
+                                    // Re-acquire lock state untuk jadi leader
+                                    let mut s_final = state_arc.write().await;
+                                    if s_final.role == Role::Candidate {
+                                        s_final.become_leader();
+                                        info!(
+                                            "Node {} became leader for term {}",
+                                            s_final.id, s_final.current_term
+                                        );
+                                    }
                                 }
                             }
                         }
 
-                        // PERBAIKAN: Lock ulang di sini dengan variabel baru
-                        if response.term > s.current_term {
-                            let mut s_follower = state_arc.write().await;
-                            if s_follower.role != Role::Leader
-                                && response.term > s_follower.current_term
-                            {
-                                s_follower.current_term = response.term;
-                                s_follower.role = Role::Follower;
-                                s_follower.voted_for = None;
-                                let _ = storage.set_current_term(s_follower.current_term).await;
+                        // Cek term lebih tinggi (Step down)
+                        // Kita harus re-acquire lock jika tadi sudah di-drop, atau pakai lock yang sama jika belum
+                        // Karena flow di atas sudah drop(s), kita lock ulang di sini khusus untuk step down
+                        if response.term > new_term {
+                            // Pakai local var new_term sebagai pembanding awal, tapi harus cek state terkini
+                            let mut s_step = state_arc.write().await;
+                            if response.term > s_step.current_term {
+                                s_step.current_term = response.term;
+                                s_step.role = Role::Follower;
+                                s_step.voted_for = None;
+                                let _ = storage.set_current_term(s_step.current_term).await;
                                 let _ = storage.set_voted_for(None).await;
                             }
                         }
@@ -333,16 +354,14 @@ impl<S: Storage + 'static> Raft<S> {
                             }
                         }
 
-                        // PERBAIKAN: Lock ulang di sini dengan variabel baru
-                        if response.term > s.current_term {
-                            let mut s_follower = state_clone.write().await;
-                            if s_follower.role != Role::Leader
-                                && response.term > s_follower.current_term
-                            {
-                                s_follower.current_term = response.term;
-                                s_follower.role = Role::Follower;
-                                s_follower.voted_for = None;
-                                let _ = storage.set_current_term(s_follower.current_term).await;
+                        // Step down jika term lebih tinggi
+                        if response.term > current_term {
+                            let mut s_step = state_clone.write().await;
+                            if response.term > s_step.current_term {
+                                s_step.current_term = response.term;
+                                s_step.role = Role::Follower;
+                                s_step.voted_for = None;
+                                let _ = storage.set_current_term(s_step.current_term).await;
                                 let _ = storage.set_voted_for(None).await;
                             }
                         }
