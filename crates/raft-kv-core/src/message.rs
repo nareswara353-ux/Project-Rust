@@ -1,10 +1,11 @@
 use serde::{Deserialize, Serialize};
+use bytes::Bytes;
 
 pub type NodeId = u64;
 pub type Term = u64;
 pub type Index = u64;
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum Command {
     Noop,
     Put { key: String, value: String },
@@ -22,7 +23,7 @@ pub struct LogEntry {
 pub struct Snapshot {
     pub last_included_index: Index,
     pub last_included_term: Term,
-    pub data: Vec<u8>,
+    pub data: Bytes,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -40,6 +41,8 @@ pub struct AppendEntriesResponse {
     pub term: Term,
     pub success: bool,
     pub match_index: Option<Index>,
+    pub conflict_index: Option<Index>,
+    pub conflict_term: Option<Term>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -63,7 +66,7 @@ pub struct InstallSnapshotRequest {
     pub last_included_index: Index,
     pub last_included_term: Term,
     pub offset: u64,
-    pub data: Vec<u8>,
+    pub data: Bytes,
     pub done: bool,
 }
 
