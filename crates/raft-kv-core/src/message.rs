@@ -5,6 +5,13 @@ pub type NodeId = u64;
 pub type Term = u64;
 pub type Index = u64;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum Role {
+    Follower,
+    Candidate,
+    Leader,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum Command {
     Noop,
@@ -40,7 +47,6 @@ pub struct AppendEntriesRequest {
 pub struct AppendEntriesResponse {
     pub term: Term,
     pub success: bool,
-    pub match_index: Option<Index>,
     pub conflict_index: Option<Index>,
     pub conflict_term: Option<Term>,
 }
@@ -74,14 +80,4 @@ pub struct InstallSnapshotRequest {
 pub struct InstallSnapshotResponse {
     pub term: Term,
     pub success: bool,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub enum RpcMessage {
-    AppendEntries(AppendEntriesRequest),
-    AppendEntriesResponse(AppendEntriesResponse),
-    RequestVote(RequestVoteRequest),
-    RequestVoteResponse(RequestVoteResponse),
-    InstallSnapshot(InstallSnapshotRequest),
-    InstallSnapshotResponse(InstallSnapshotResponse),
 }

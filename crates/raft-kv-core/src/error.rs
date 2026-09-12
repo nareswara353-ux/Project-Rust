@@ -2,32 +2,20 @@ use thiserror::Error;
 
 #[derive(Error, Debug)]
 pub enum RaftError {
-    #[error("node is not the leader")]
+    #[error("Node is not the leader")]
     NotLeader,
-
-    #[error("term mismatch: local {local}, remote {remote}")]
-    TermMismatch { local: u64, remote: u64 },
-
-    #[error("log inconsistency at index {index}")]
-    LogMismatch { index: u64 },
-
-    #[error("storage failure: {0}")]
-    Storage(String),
-
-    #[error("network communication failed: {0}")]
-    Network(String),
-
-    #[error("invalid configuration: {0}")]
-    Config(String),
-
-    #[error("snapshot application failed: {0}")]
-    Snapshot(String),
-
-    #[error("operation timed out")]
-    Timeout,
-
-    #[error("node shut down")]
-    ShutDown,
+    #[error("Term mismatch: expected {0}, got {1}")]
+    TermMismatch(u64, u64),
+    #[error("Log mismatch at index {0}")]
+    LogMismatch(u64),
+    #[error("Storage error: {0}")]
+    StorageError(String),
+    #[error("Network error: {0}")]
+    NetworkError(String),
+    #[error("Snapshot error: {0}")]
+    SnapshotError(String),
+    #[error("Configuration error: {0}")]
+    ConfigError(String),
 }
 
 pub type Result<T> = std::result::Result<T, RaftError>;
