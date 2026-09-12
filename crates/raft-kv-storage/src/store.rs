@@ -1,6 +1,6 @@
+use crate::snapshot::Snapshot;
 use raft_kv_core::{Command, Index};
 use std::collections::HashMap;
-use crate::snapshot::Snapshot;
 
 pub struct KeyValueStore {
     data: HashMap<String, String>,
