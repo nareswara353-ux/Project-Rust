@@ -288,7 +288,14 @@ impl<S: Storage> Raft<S> {
                 .map(|e| e.term)
                 .unwrap_or(0);
 
-            (entries, pli, plt, state.current_term, state.id, state.commit_index)
+            (
+                entries,
+                pli,
+                plt,
+                state.current_term,
+                state.id,
+                state.commit_index,
+            )
         };
 
         let req = AppendEntriesRequest {
