@@ -78,10 +78,7 @@ impl<S: Storage> Raft<S> {
                             *v += 1;
                             if *v >= quorum && s.role == Role::Candidate {
                                 s.become_leader();
-                                info!(
-                                    "Node {} became leader for term {}",
-                                    s.id, s.current_term
-                                );
+                                info!("Node {} became leader for term {}", s.id, s.current_term);
                             }
                         } else if response.term > s.current_term && s.role != Role::Leader {
                             s.current_term = response.term;
