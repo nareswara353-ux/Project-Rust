@@ -26,23 +26,18 @@ impl<S: Storage + 'static> Raft<S> {
     }
 
     pub async fn start_election(&self) -> Result<()> {
-        let (last_log_index, last_log_term, current_term, node_id) = {
+        let (last_log_index, last_log_term, node_id) = {
             let state = self.state.read().await;
-            (state.last_log_index(), state.last_log_term(), state.current_term, state.id)
+            (state.last_log_index(), state.last_log_term(), state.id)
         };
 
-        let new_term = current_term + 1;
-
-        {
+        let new_term = {
             let mut state = self.state.write().await;
-            // Cek lagi apakah term belum berubah saat kita menunggu lock
-            if state.current_term >= new_term {
-                return Ok(()); 
-            }
-            state.current_term = new_term;
+            state.current_term += 1;
             state.role = Role::Candidate;
             state.voted_for = Some(node_id);
-        }
+            state.current_term
+        };
 
         self.storage
             .set_current_term(new_term)
@@ -89,21 +84,22 @@ impl<S: Storage + 'static> Raft<S> {
                                 drop(v);
                                 if won && s.role == Role::Candidate {
                                     s.become_leader();
-                                    info!("Node {} became leader for term {}", s.id, s.current_term);
+                                    info!(
+                                        "Node {} became leader for term {}",
+                                        s.id, s.current_term
+                                    );
                                 }
                             }
                         } else if response.term > s.current_term {
-                             // Perlu lock ulang di sini karena 's' sudah drop atau scope berbeda
-                             // Tapi di struktur ini, kita bisa pakai 's' jika masih dalam scope yang sama.
-                             // Masalahnya di kode sebelumnya adalah 's' dideklarasikan di blok 'if' sebelumnya.
-                             // Mari kita perbaiki dengan logika yang lebih aman:
-                             if response.term > s.current_term {
+                            // Lock ulang di sini agar 's' valid
+                            let mut s = state_arc.write().await;
+                            if response.term > s.current_term && s.role != Role::Leader {
                                 s.current_term = response.term;
                                 s.role = Role::Follower;
                                 s.voted_for = None;
                                 let _ = storage.set_current_term(s.current_term).await;
                                 let _ = storage.set_voted_for(None).await;
-                             }
+                            }
                         }
                     }
                     Err(e) => warn!("Failed to request vote from {}: {}", peer_id, e),
@@ -255,11 +251,9 @@ impl<S: Storage + 'static> Raft<S> {
         };
 
         state.log.push(entry.clone());
-
         drop(state);
 
         self.replicate_to_peers(next_index).await?;
-
         Ok(next_index)
     }
 
@@ -334,7 +328,9 @@ impl<S: Storage + 'static> Raft<S> {
                                 }
                             }
                         } else if response.term > s.current_term {
-                            if response.term > s.current_term {
+                            // Lock ulang di sini
+                            let mut s = state_clone.write().await;
+                            if response.term > s.current_term && s.role != Role::Leader {
                                 s.current_term = response.term;
                                 s.role = Role::Follower;
                                 s.voted_for = None;
