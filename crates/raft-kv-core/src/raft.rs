@@ -17,7 +17,11 @@ pub struct Raft<S: Storage> {
 
 impl<S: Storage> Raft<S> {
     pub fn new(state: Arc<RwLock<NodeState>>, storage: Arc<S>, peers: Vec<Node>) -> Self {
-        Self { state, storage, peers }
+        Self {
+            state,
+            storage,
+            peers,
+        }
     }
 
     pub async fn start_election(&self) -> Result<()> {
@@ -68,10 +72,7 @@ impl<S: Storage> Raft<S> {
                             votes += 1;
                             if votes >= quorum && s.role == Role::Candidate {
                                 s.become_leader();
-                                info!(
-                                    "Node {} became leader for term {}",
-                                    s.id, s.current_term
-                                );
+                                info!("Node {} became leader for term {}", s.id, s.current_term);
                             }
                         } else if response.term > s.current_term {
                             // Error: s is out of scope here, need to fix logic
@@ -288,7 +289,7 @@ impl<S: Storage> Raft<S> {
                                 s.commit_index = std::max(s.commit_index, index);
                             }
                         } else if response.term > s.current_term {
-                             // Error: s is out of scope here
+                            // Error: s is out of scope here
                         }
                     }
                     Err(e) => warn!("Failed to replicate to {}: {}", peer.id, e),
