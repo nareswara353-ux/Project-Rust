@@ -26,50 +26,43 @@ impl<S: Storage> Raft<S> {
     }
 
     pub async fn start_election(&self) -> Result<()> {
-        {
+        let last_log_info = {
+            let state = self.state.read().await;
+            (state.last_log_index(), state.last_log_term())
+        };
+
+        let current_term = {
             let mut state = self.state.write().await;
             state.current_term += 1;
             state.role = Role::Candidate;
             state.voted_for = Some(state.id);
-
-            self.storage
-                .set_current_term(state.current_term)
-                .await
-                .map_err(|e| RaftError::StorageError(e.to_string()))?;
-            self.storage
-                .set_voted_for(Some(state.id))
-                .await
-                .map_err(|e| RaftError::StorageError(e.to_string()))?;
-
-            info!(
-                "Node {} starting election for term {}",
-                state.id, state.current_term
-            );
-        }
-
-        let last_log_index = {
-            let state = self.state.read().await;
-            state.last_log_index()
-        };
-        let last_log_term = {
-            let state = self.state.read().await;
-            state.last_log_term()
-        };
-
-        let current_term = {
-            let state = self.state.read().await;
             state.current_term
         };
+
         let node_id = {
             let state = self.state.read().await;
             state.id
         };
 
+        self.storage
+            .set_current_term(current_term)
+            .await
+            .map_err(|e| RaftError::StorageError(e.to_string()))?;
+        self.storage
+            .set_voted_for(Some(node_id))
+            .await
+            .map_err(|e| RaftError::StorageError(e.to_string()))?;
+
+        info!(
+            "Node {} starting election for term {}",
+            node_id, current_term
+        );
+
         let req = RequestVoteRequest {
             term: current_term,
             candidate_id: node_id,
-            last_log_index,
-            last_log_term,
+            last_log_index: last_log_info.0,
+            last_log_term: last_log_info.1,
         };
 
         let votes = Arc::new(RwLock::new(1));
@@ -90,13 +83,14 @@ impl<S: Storage> Raft<S> {
                 match send_vote_request(peer_addr, req).await {
                     Ok(response) => {
                         if response.vote_granted {
-                            let mut s = state_arc.write().await;
-                            if s.role == Role::Candidate {
-                                let mut v = votes.write().await;
-                                *v += 1;
-                                let won = *v >= quorum;
-                                drop(v);
-                                if won && s.role == Role::Candidate {
+                            let mut v = votes.write().await;
+                            *v += 1;
+                            let won = *v >= quorum;
+                            drop(v);
+
+                            if won {
+                                let mut s = state_arc.write().await;
+                                if s.role == Role::Candidate {
                                     s.become_leader();
                                     info!(
                                         "Node {} became leader for term {}",
@@ -104,9 +98,9 @@ impl<S: Storage> Raft<S> {
                                     );
                                 }
                             }
-                        } else if response.term > s.current_term && s.role != Role::Leader {
+                        } else if response.term > 0 {
                             let mut s = state_arc.write().await;
-                            if response.term > s.current_term && s.role != Role::Leader {
+                            if response.term > s.current_term {
                                 s.current_term = response.term;
                                 s.role = Role::Follower;
                                 s.voted_for = None;
@@ -273,44 +267,29 @@ impl<S: Storage> Raft<S> {
     }
 
     async fn replicate_to_peers(&self, index: u64) -> Result<()> {
-        let entries_to_send;
-        let prev_log_index;
-        let prev_log_term;
-        let current_term;
-        let node_id;
-        let commit_index;
-        let peers;
-
-        {
+        let (entries_to_send, prev_log_index, prev_log_term, current_term, node_id, commit_index) = {
             let state = self.state.read().await;
-            entries_to_send = state
+            let entries: Vec<LogEntry> = state
                 .log
                 .iter()
                 .filter(|e| e.index >= index)
                 .cloned()
-                .collect::<Vec<LogEntry>>();
+                .collect();
 
-            if entries_to_send.is_empty() {
+            if entries.is_empty() {
                 return Ok(());
             }
 
             let pli = if index > 1 { index - 1 } else { 0 };
-            prev_log_index = pli;
-            prev_log_term = state
+            let plt = state
                 .log
                 .iter()
-                .find(|e| e.index == prev_log_index)
+                .find(|e| e.index == pli)
                 .map(|e| e.term)
                 .unwrap_or(0);
 
-            current_term = state.current_term;
-            node_id = state.id;
-            commit_index = state.commit_index;
-            peers = state.peers.clone(); // Asumsi Node memiliki clone jika disimpan di state, atau ambil dari self.peers
-        }
-
-        // Karena peers ada di struct Raft, kita pakai self.peers langsung dengan clone sebelumnya
-        let peers = self.peers.clone();
+            (entries, pli, plt, state.current_term, state.id, state.commit_index)
+        };
 
         let req = AppendEntriesRequest {
             term: current_term,
@@ -322,9 +301,10 @@ impl<S: Storage> Raft<S> {
         };
 
         let successful_replications = Arc::new(RwLock::new(1));
-        let quorum = (peers.len() / 2) + 1;
+        let quorum = (self.peers.len() / 2) + 1;
         let state_clone = self.state.clone();
         let storage = self.storage.clone();
+        let peers = self.peers.clone();
 
         for peer in peers {
             let req = req.clone();
@@ -339,19 +319,20 @@ impl<S: Storage> Raft<S> {
                 match send_append_entries(peer_addr, req).await {
                     Ok(response) => {
                         if response.success {
-                            let mut s = state_clone.write().await;
-                            if s.role == Role::Leader {
-                                let mut r = successful_replications.write().await;
-                                *r += 1;
-                                let won = *r >= quorum;
-                                drop(r);
-                                if won && s.role == Role::Leader {
+                            let mut r = successful_replications.write().await;
+                            *r += 1;
+                            let reached_quorum = *r >= quorum;
+                            drop(r);
+
+                            if reached_quorum {
+                                let mut s = state_clone.write().await;
+                                if s.role == Role::Leader {
                                     s.commit_index = max(s.commit_index, index);
                                 }
                             }
-                        } else if response.term > s.current_term && s.role != Role::Leader {
+                        } else if response.term > 0 {
                             let mut s = state_clone.write().await;
-                            if response.term > s.current_term && s.role != Role::Leader {
+                            if response.term > s.current_term {
                                 s.current_term = response.term;
                                 s.role = Role::Follower;
                                 s.voted_for = None;
