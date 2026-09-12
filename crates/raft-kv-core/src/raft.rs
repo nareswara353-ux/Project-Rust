@@ -55,7 +55,7 @@ impl<S: Storage> Raft<S> {
             let state = self.state.read().await;
             state.last_log_term()
         };
-        
+
         let current_term = {
             let state = self.state.read().await;
             state.current_term
@@ -95,7 +95,7 @@ impl<S: Storage> Raft<S> {
                                 let mut v = votes.write().await;
                                 *v += 1;
                                 let won = *v >= quorum;
-                                drop(v); 
+                                drop(v);
                                 if won && s.role == Role::Candidate {
                                     s.become_leader();
                                     info!(
@@ -302,13 +302,13 @@ impl<S: Storage> Raft<S> {
                 .find(|e| e.index == prev_log_index)
                 .map(|e| e.term)
                 .unwrap_or(0);
-            
+
             current_term = state.current_term;
             node_id = state.id;
             commit_index = state.commit_index;
             peers = state.peers.clone(); // Asumsi Node memiliki clone jika disimpan di state, atau ambil dari self.peers
         }
-        
+
         // Karena peers ada di struct Raft, kita pakai self.peers langsung dengan clone sebelumnya
         let peers = self.peers.clone();
 
