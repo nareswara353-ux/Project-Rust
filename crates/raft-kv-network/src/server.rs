@@ -44,7 +44,7 @@ impl RpcServer {
 async fn handle_connection(
     mut stream: TcpStream,
     tx: mpsc::Sender<RpcMessage>,
-    local_id: NodeId,
+    _local_id: NodeId,
     peer_addr: SocketAddr,
 ) -> Result<(), NetworkError> {
     let mut buf = vec![0u8; 4096];
