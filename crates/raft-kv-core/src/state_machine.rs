@@ -1,6 +1,5 @@
 use crate::error::{RaftError, Result};
 use crate::message::{Command, Snapshot};
-use bytes::Bytes;
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 

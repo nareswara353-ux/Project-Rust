@@ -26,67 +26,93 @@ impl<S: Storage> Raft<S> {
     }
 
     pub async fn start_election(&self) -> Result<()> {
-        let mut state = self.state.write().await;
-        state.current_term += 1;
-        state.role = Role::Candidate;
-        state.voted_for = Some(state.id);
+        {
+            let mut state = self.state.write().await;
+            state.current_term += 1;
+            state.role = Role::Candidate;
+            state.voted_for = Some(state.id);
 
-        self.storage
-            .set_current_term(state.current_term)
-            .await
-            .map_err(|e| RaftError::StorageError(e.to_string()))?;
-        self.storage
-            .set_voted_for(Some(state.id))
-            .await
-            .map_err(|e| RaftError::StorageError(e.to_string()))?;
+            self.storage
+                .set_current_term(state.current_term)
+                .await
+                .map_err(|e| RaftError::StorageError(e.to_string()))?;
+            self.storage
+                .set_voted_for(Some(state.id))
+                .await
+                .map_err(|e| RaftError::StorageError(e.to_string()))?;
 
-        info!(
-            "Node {} starting election for term {}",
-            state.id, state.current_term
-        );
+            info!(
+                "Node {} starting election for term {}",
+                state.id, state.current_term
+            );
+        }
 
-        let last_log_index = state.last_log_index();
-        let last_log_term = state.last_log_term();
+        let last_log_index = {
+            let state = self.state.read().await;
+            state.last_log_index()
+        };
+        let last_log_term = {
+            let state = self.state.read().await;
+            state.last_log_term()
+        };
+        
+        let current_term = {
+            let state = self.state.read().await;
+            state.current_term
+        };
+        let node_id = {
+            let state = self.state.read().await;
+            state.id
+        };
+
         let req = RequestVoteRequest {
-            term: state.current_term,
-            candidate_id: state.id,
+            term: current_term,
+            candidate_id: node_id,
             last_log_index,
             last_log_term,
         };
-
-        drop(state);
 
         let votes = Arc::new(RwLock::new(1));
         let quorum = (self.peers.len() / 2) + 1;
         let state_arc = self.state.clone();
         let storage = self.storage.clone();
+        let peers = self.peers.clone();
 
-        for peer in &self.peers {
+        for peer in peers {
             let req = req.clone();
             let storage = storage.clone();
             let state_arc = state_arc.clone();
             let votes = votes.clone();
-            let quorum = quorum;
             let peer_id = peer.id;
+            let peer_addr = peer.addr.clone();
 
             tokio::spawn(async move {
-                match send_vote_request(peer.addr.clone(), req).await {
+                match send_vote_request(peer_addr, req).await {
                     Ok(response) => {
-                        let mut s = state_arc.write().await;
-                        if response.vote_granted && s.role == Role::Candidate {
-                            let mut v = votes.write().await;
-                            *v += 1;
-                            if *v >= quorum && s.role == Role::Candidate {
-                                s.become_leader();
-                                info!("Node {} became leader for term {}", s.id, s.current_term);
+                        if response.vote_granted {
+                            let mut s = state_arc.write().await;
+                            if s.role == Role::Candidate {
+                                let mut v = votes.write().await;
+                                *v += 1;
+                                let won = *v >= quorum;
+                                drop(v); 
+                                if won && s.role == Role::Candidate {
+                                    s.become_leader();
+                                    info!(
+                                        "Node {} became leader for term {}",
+                                        s.id, s.current_term
+                                    );
+                                }
                             }
                         } else if response.term > s.current_term && s.role != Role::Leader {
-                            s.current_term = response.term;
-                            s.role = Role::Follower;
-                            s.voted_for = None;
-                            drop(s);
-                            let _ = storage.set_current_term(response.term).await;
-                            let _ = storage.set_voted_for(None).await;
+                            let mut s = state_arc.write().await;
+                            if response.term > s.current_term && s.role != Role::Leader {
+                                s.current_term = response.term;
+                                s.role = Role::Follower;
+                                s.voted_for = None;
+                                let _ = storage.set_current_term(s.current_term).await;
+                                let _ = storage.set_voted_for(None).await;
+                            }
                         }
                     }
                     Err(e) => warn!("Failed to request vote from {}: {}", peer_id, e),
@@ -247,67 +273,91 @@ impl<S: Storage> Raft<S> {
     }
 
     async fn replicate_to_peers(&self, index: u64) -> Result<()> {
-        let state = self.state.read().await;
-        let entries_to_send: Vec<LogEntry> = state
-            .log
-            .iter()
-            .filter(|e| e.index >= index)
-            .cloned()
-            .collect();
+        let entries_to_send;
+        let prev_log_index;
+        let prev_log_term;
+        let current_term;
+        let node_id;
+        let commit_index;
+        let peers;
 
-        if entries_to_send.is_empty() {
-            return Ok(());
+        {
+            let state = self.state.read().await;
+            entries_to_send = state
+                .log
+                .iter()
+                .filter(|e| e.index >= index)
+                .cloned()
+                .collect::<Vec<LogEntry>>();
+
+            if entries_to_send.is_empty() {
+                return Ok(());
+            }
+
+            let pli = if index > 1 { index - 1 } else { 0 };
+            prev_log_index = pli;
+            prev_log_term = state
+                .log
+                .iter()
+                .find(|e| e.index == prev_log_index)
+                .map(|e| e.term)
+                .unwrap_or(0);
+            
+            current_term = state.current_term;
+            node_id = state.id;
+            commit_index = state.commit_index;
+            peers = state.peers.clone(); // Asumsi Node memiliki clone jika disimpan di state, atau ambil dari self.peers
         }
-
-        let prev_log_index = if index > 1 { index - 1 } else { 0 };
-        let prev_log_term = state
-            .log
-            .iter()
-            .find(|e| e.index == prev_log_index)
-            .map(|e| e.term)
-            .unwrap_or(0);
+        
+        // Karena peers ada di struct Raft, kita pakai self.peers langsung dengan clone sebelumnya
+        let peers = self.peers.clone();
 
         let req = AppendEntriesRequest {
-            term: state.current_term,
-            leader_id: state.id,
+            term: current_term,
+            leader_id: node_id,
             prev_log_index,
             prev_log_term,
             entries: entries_to_send,
-            leader_commit: state.commit_index,
+            leader_commit: commit_index,
         };
 
-        drop(state);
-
         let successful_replications = Arc::new(RwLock::new(1));
-        let quorum = (self.peers.len() / 2) + 1;
+        let quorum = (peers.len() / 2) + 1;
         let state_clone = self.state.clone();
         let storage = self.storage.clone();
 
-        for peer in &self.peers {
+        for peer in peers {
             let req = req.clone();
             let storage = storage.clone();
             let state_clone = state_clone.clone();
             let successful_replications = successful_replications.clone();
             let quorum = quorum;
             let peer_id = peer.id;
+            let peer_addr = peer.addr.clone();
 
             tokio::spawn(async move {
-                match send_append_entries(peer.addr.clone(), req).await {
+                match send_append_entries(peer_addr, req).await {
                     Ok(response) => {
-                        let mut s = state_clone.write().await;
-                        if response.success && s.role == Role::Leader {
-                            let mut r = successful_replications.write().await;
-                            *r += 1;
-                            if *r >= quorum && s.role == Role::Leader {
-                                s.commit_index = max(s.commit_index, index);
+                        if response.success {
+                            let mut s = state_clone.write().await;
+                            if s.role == Role::Leader {
+                                let mut r = successful_replications.write().await;
+                                *r += 1;
+                                let won = *r >= quorum;
+                                drop(r);
+                                if won && s.role == Role::Leader {
+                                    s.commit_index = max(s.commit_index, index);
+                                }
                             }
                         } else if response.term > s.current_term && s.role != Role::Leader {
-                            s.current_term = response.term;
-                            s.role = Role::Follower;
-                            s.voted_for = None;
-                            drop(s);
-                            let _ = storage.set_current_term(response.term).await;
-                            let _ = storage.set_voted_for(None).await;
+                            let mut s = state_clone.write().await;
+                            if response.term > s.current_term && s.role != Role::Leader {
+                                s.current_term = response.term;
+                                s.role = Role::Follower;
+                                s.voted_for = None;
+                                let _ = storage.set_current_term(s.current_term).await;
+                                let _ = storage.set_voted_for(None).await;
+                            }
                         }
                     }
                     Err(e) => warn!("Failed to replicate to {}: {}", peer_id, e),
