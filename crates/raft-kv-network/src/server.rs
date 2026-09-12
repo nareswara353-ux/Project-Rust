@@ -1,8 +1,8 @@
-use crate::codec::{decode_message, encode_message};
+use crate::codec::{decode, encode};
 use crate::{NetworkError, RpcMessage};
 use raft_kv_core::NodeId;
 use std::net::SocketAddr;
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::io::AsyncReadExt;
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::mpsc;
 use tracing::{error, info, warn};
@@ -56,7 +56,7 @@ async fn handle_connection(
             break;
         }
 
-        let msg = decode_message(&buf[..n])?;
+        let msg = decode(&buf[..n])?;
         info!("Received message from {}: {:?}", peer_addr, msg);
 
         if let Err(e) = tx.send(msg).await {
