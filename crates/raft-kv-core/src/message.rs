@@ -1,5 +1,5 @@
-use serde::{Deserialize, Serialize};
 use bytes::Bytes;
+use serde::{Deserialize, Serialize};
 
 pub type NodeId = u64;
 pub type Term = u64;

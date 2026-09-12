@@ -1,5 +1,5 @@
-use crate::message::{Command, Snapshot};
 use crate::error::{RaftError, Result};
+use crate::message::{Command, Snapshot};
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 
@@ -24,9 +24,10 @@ impl StateMachine {
     }
 
     pub fn apply(&self, index: u64, command: &Command) -> Result<Option<String>> {
-        let mut data = self.data.write().map_err(|_| {
-            RaftError::StorageError("Poisoned lock in state machine".to_string())
-        })?;
+        let mut data = self
+            .data
+            .write()
+            .map_err(|_| RaftError::StorageError("Poisoned lock in state machine".to_string()))?;
 
         let result = match command {
             Command::Noop => None,
@@ -37,42 +38,48 @@ impl StateMachine {
             Command::Delete { key } => data.remove(key),
         };
 
-        let mut last_index = self.last_applied_index.write().map_err(|_| {
-            RaftError::StorageError("Poisoned lock in state machine".to_string())
-        })?;
+        let mut last_index = self
+            .last_applied_index
+            .write()
+            .map_err(|_| RaftError::StorageError("Poisoned lock in state machine".to_string()))?;
         *last_index = index;
 
         Ok(result)
     }
 
     pub fn get(&self, key: &str) -> Result<Option<String>> {
-        let data = self.data.read().map_err(|_| {
-            RaftError::StorageError("Poisoned lock in state machine".to_string())
-        })?;
+        let data = self
+            .data
+            .read()
+            .map_err(|_| RaftError::StorageError("Poisoned lock in state machine".to_string()))?;
         Ok(data.get(key).cloned())
     }
 
     pub fn contains_key(&self, key: &str) -> Result<bool> {
-        let data = self.data.read().map_err(|_| {
-            RaftError::StorageError("Poisoned lock in state machine".to_string())
-        })?;
+        let data = self
+            .data
+            .read()
+            .map_err(|_| RaftError::StorageError("Poisoned lock in state machine".to_string()))?;
         Ok(data.contains_key(key))
     }
 
     pub fn last_applied_index(&self) -> Result<u64> {
-        let index = self.last_applied_index.read().map_err(|_| {
-            RaftError::StorageError("Poisoned lock in state machine".to_string())
-        })?;
+        let index = self
+            .last_applied_index
+            .read()
+            .map_err(|_| RaftError::StorageError("Poisoned lock in state machine".to_string()))?;
         Ok(*index)
     }
 
     pub fn create_snapshot(&self) -> Result<Snapshot> {
-        let data = self.data.read().map_err(|_| {
-            RaftError::StorageError("Poisoned lock in state machine".to_string())
-        })?;
-        let last_index = self.last_applied_index.read().map_err(|_| {
-            RaftError::StorageError("Poisoned lock in state machine".to_string())
-        })?;
+        let data = self
+            .data
+            .read()
+            .map_err(|_| RaftError::StorageError("Poisoned lock in state machine".to_string()))?;
+        let last_index = self
+            .last_applied_index
+            .read()
+            .map_err(|_| RaftError::StorageError("Poisoned lock in state machine".to_string()))?;
 
         let mut snapshot_data = Vec::new();
         for (key, value) in data.iter() {
@@ -86,15 +93,16 @@ impl StateMachine {
 
         Ok(Snapshot {
             last_included_index: *last_index,
-            last_included_term: 0, 
+            last_included_term: 0,
             data: snapshot_data,
         })
     }
 
     pub fn restore_from_snapshot(&self, snapshot: &Snapshot) -> Result<()> {
-        let mut data = self.data.write().map_err(|_| {
-            RaftError::StorageError("Poisoned lock in state machine".to_string())
-        })?;
+        let mut data = self
+            .data
+            .write()
+            .map_err(|_| RaftError::StorageError("Poisoned lock in state machine".to_string()))?;
         data.clear();
 
         let bytes = &snapshot.data;
@@ -114,9 +122,8 @@ impl StateMachine {
                     "Invalid snapshot format: key length mismatch".to_string(),
                 ));
             }
-            let key = String::from_utf8(bytes[offset..offset + key_len].to_vec()).map_err(|e| {
-                RaftError::StorageError(format!("Invalid UTF-8 in key: {}", e))
-            })?;
+            let key = String::from_utf8(bytes[offset..offset + key_len].to_vec())
+                .map_err(|e| RaftError::StorageError(format!("Invalid UTF-8 in key: {}", e)))?;
             offset += key_len;
 
             if offset + 4 > bytes.len() {
@@ -137,17 +144,17 @@ impl StateMachine {
                     "Invalid snapshot format: value length mismatch".to_string(),
                 ));
             }
-            let value = String::from_utf8(bytes[offset..offset + val_len].to_vec()).map_err(|e| {
-                RaftError::StorageError(format!("Invalid UTF-8 in value: {}", e))
-            })?;
+            let value = String::from_utf8(bytes[offset..offset + val_len].to_vec())
+                .map_err(|e| RaftError::StorageError(format!("Invalid UTF-8 in value: {}", e)))?;
             offset += val_len;
 
             data.insert(key, value);
         }
 
-        let mut last_index = self.last_applied_index.write().map_err(|_| {
-            RaftError::StorageError("Poisoned lock in state machine".to_string())
-        })?;
+        let mut last_index = self
+            .last_applied_index
+            .write()
+            .map_err(|_| RaftError::StorageError("Poisoned lock in state machine".to_string()))?;
         *last_index = snapshot.last_included_index;
 
         Ok(())

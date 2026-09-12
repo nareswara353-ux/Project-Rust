@@ -1,5 +1,5 @@
-use crate::message::{LogEntry, Snapshot};
 use crate::error::{RaftError, Result};
+use crate::message::{LogEntry, Snapshot};
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
