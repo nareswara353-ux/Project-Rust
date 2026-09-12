@@ -72,28 +72,24 @@ impl<S: Storage> Raft<S> {
             tokio::spawn(async move {
                 match send_vote_request(peer.addr.clone(), req).await {
                     Ok(response) => {
-                        if response.vote_granted {
-                            let mut s = state_arc.write().await;
-                            if s.role == Role::Candidate {
-                                let mut v = votes.write().await;
-                                *v += 1;
-                                if *v >= quorum && s.role == Role::Candidate {
-                                    s.become_leader();
-                                    info!(
-                                        "Node {} became leader for term {}",
-                                        s.id, s.current_term
-                                    );
-                                }
+                        let mut s = state_arc.write().await;
+                        if response.vote_granted && s.role == Role::Candidate {
+                            let mut v = votes.write().await;
+                            *v += 1;
+                            if *v >= quorum && s.role == Role::Candidate {
+                                s.become_leader();
+                                info!(
+                                    "Node {} became leader for term {}",
+                                    s.id, s.current_term
+                                );
                             }
-                        } else if response.term > s.current_term {
-                            let mut s = state_arc.write().await;
-                            if response.term > s.current_term {
-                                s.current_term = response.term;
-                                s.role = Role::Follower;
-                                s.voted_for = None;
-                                let _ = storage.set_current_term(s.current_term).await;
-                                let _ = storage.set_voted_for(None).await;
-                            }
+                        } else if response.term > s.current_term && s.role != Role::Leader {
+                            s.current_term = response.term;
+                            s.role = Role::Follower;
+                            s.voted_for = None;
+                            drop(s);
+                            let _ = storage.set_current_term(response.term).await;
+                            let _ = storage.set_voted_for(None).await;
                         }
                     }
                     Err(e) => warn!("Failed to request vote from {}: {}", peer_id, e),
@@ -301,24 +297,20 @@ impl<S: Storage> Raft<S> {
             tokio::spawn(async move {
                 match send_append_entries(peer.addr.clone(), req).await {
                     Ok(response) => {
-                        if response.success {
-                            let mut s = state_clone.write().await;
-                            if s.role == Role::Leader {
-                                let mut r = successful_replications.write().await;
-                                *r += 1;
-                                if *r >= quorum && s.role == Role::Leader {
-                                    s.commit_index = max(s.commit_index, index);
-                                }
+                        let mut s = state_clone.write().await;
+                        if response.success && s.role == Role::Leader {
+                            let mut r = successful_replications.write().await;
+                            *r += 1;
+                            if *r >= quorum && s.role == Role::Leader {
+                                s.commit_index = max(s.commit_index, index);
                             }
-                        } else if response.term > s.current_term {
-                            let mut s = state_clone.write().await;
-                            if response.term > s.current_term {
-                                s.current_term = response.term;
-                                s.role = Role::Follower;
-                                s.voted_for = None;
-                                let _ = storage.set_current_term(s.current_term).await;
-                                let _ = storage.set_voted_for(None).await;
-                            }
+                        } else if response.term > s.current_term && s.role != Role::Leader {
+                            s.current_term = response.term;
+                            s.role = Role::Follower;
+                            s.voted_for = None;
+                            drop(s);
+                            let _ = storage.set_current_term(response.term).await;
+                            let _ = storage.set_voted_for(None).await;
                         }
                     }
                     Err(e) => warn!("Failed to replicate to {}: {}", peer_id, e),

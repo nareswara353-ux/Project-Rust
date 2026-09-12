@@ -1,6 +1,5 @@
 use crate::error::{RaftError, Result};
 use crate::message::{Command, Snapshot};
-use bytes::Bytes;
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 
@@ -19,7 +18,7 @@ impl Default for StateMachine {
 impl StateMachine {
     pub fn new() -> Self {
         Self {
-            data: Arc::new(RwLock::new(HashMap::new())),
+             Arc::new(RwLock::new(HashMap::new())),
             last_applied_index: Arc::new(RwLock::new(0)),
         }
     }
@@ -95,7 +94,7 @@ impl StateMachine {
         Ok(Snapshot {
             last_included_index: *last_index,
             last_included_term: 0,
-            data: snapshot_data.into(),
+             snapshot_data.into(),
         })
     }
 
