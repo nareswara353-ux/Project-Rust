@@ -1,4 +1,4 @@
-use crate::codec::{decode_message, encode_message};
+use crate::codec::encode_message;
 use crate::{NetworkError, RpcMessage};
 use std::net::SocketAddr;
 use std::time::Duration;
@@ -40,7 +40,7 @@ impl RpcClient {
         let stream = timeout(self.connect_timeout, TcpStream::connect(addr))
             .await
             .map_err(|_| NetworkError::Timeout)?
-            .map_err(|e| NetworkError::Io(e))?;
+            .map_err(NetworkError::Io)?;
 
         let (mut reader, mut writer) = stream.into_split();
 
@@ -54,12 +54,13 @@ impl RpcClient {
         let n = timeout(self.read_timeout, reader.read(&mut buf))
             .await
             .map_err(|_| NetworkError::Timeout)?
-            .map_err(|e| NetworkError::Io(e))?;
+            .map_err(NetworkError::Io)?;
 
         if n == 0 {
             return Err(NetworkError::Connection("Connection closed by peer".into()));
         }
 
+        use crate::codec::decode_message;
         let response = decode_message(&buf[..n])?;
         info!("Received response from {}: {:?}", addr, response);
 
@@ -74,7 +75,7 @@ impl RpcClient {
         let stream = timeout(self.connect_timeout, TcpStream::connect(addr))
             .await
             .map_err(|_| NetworkError::Timeout)?
-            .map_err(|e| NetworkError::Io(e))?;
+            .map_err(NetworkError::Io)?;
 
         let (_, mut writer) = stream.into_split();
 

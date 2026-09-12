@@ -1,11 +1,11 @@
-use crate::codec::{decode_message, encode_message};
+use crate::codec::decode_message;
 use crate::{NetworkError, RpcMessage};
 use raft_kv_core::NodeId;
 use std::net::SocketAddr;
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::io::AsyncReadExt;
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::mpsc;
-use tracing::{error, info, warn};
+use tracing::{info, warn};
 
 pub struct RpcServer {
     addr: SocketAddr,
@@ -34,7 +34,7 @@ impl RpcServer {
                     });
                 }
                 Err(e) => {
-                    error!("Accept error: {}", e);
+                    warn!("Accept error: {}", e);
                 }
             }
         }
@@ -44,7 +44,7 @@ impl RpcServer {
 async fn handle_connection(
     mut stream: TcpStream,
     tx: mpsc::Sender<RpcMessage>,
-    _local_id: NodeId,
+    local_id: NodeId,
     peer_addr: SocketAddr,
 ) -> Result<(), NetworkError> {
     let mut buf = vec![0u8; 4096];
@@ -60,7 +60,7 @@ async fn handle_connection(
         info!("Received message from {}: {:?}", peer_addr, msg);
 
         if let Err(e) = tx.send(msg).await {
-            error!("Failed to forward message to core: {}", e);
+            warn!("Failed to forward message to core: {}", e);
             break;
         }
     }
