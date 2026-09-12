@@ -1,44 +1,23 @@
 use crate::{NetworkError, RpcMessage};
-use bytes::{Buf, BufMut, BytesMut};
-use tokio_util::codec::{Decoder, Encoder};
+use bytes::Bytes;
 
-pub struct RpcCodec;
+pub struct MessageCodec;
 
-impl Encoder<RpcMessage> for RpcCodec {
-    type Error = NetworkError;
-
-    fn encode(&mut self, msg: RpcMessage, dst: &mut BytesMut) -> Result<(), Self::Error> {
-        let bytes = bincode::serialize(&msg)
+impl MessageCodec {
+    pub fn encode(msg: &RpcMessage) -> Result<Bytes, NetworkError> {
+        let serialized = bincode::serialize(msg)
             .map_err(|e| NetworkError::Serialization(e.to_string()))?;
-
-        let len = bytes.len() as u32;
-        dst.reserve(4 + bytes.len());
-        dst.put_u32(len);
-        dst.put_slice(&bytes);
-        Ok(())
+        Ok(Bytes::from(serialized))
     }
-}
 
-impl Decoder for RpcCodec {
-    type Item = RpcMessage;
-    type Error = NetworkError;
-
-    fn decode(&mut self, src: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error> {
-        if src.len() < 4 {
-            return Ok(None);
-        }
-
-        let len = src.get_u32() as usize;
-        if src.len() < len {
-            src.reserve(len - src.len());
-            return Ok(None);
-        }
-
-        let bytes = src.split_to(len).freeze();
-        let msg: RpcMessage = bincode::deserialize(&bytes)
+    pub fn decode(bytes: &[u8]) -> Result<RpcMessage, NetworkError> {
+        let msg: RpcMessage = bincode::deserialize(bytes)
             .map_err(|e| NetworkError::Serialization(e.to_string()))?;
+        Ok(msg)
+    }
 
-        Ok(Some(msg))
+    pub fn size_hint(msg: &RpcMessage) -> usize {
+        bincode::serialized_size(msg).unwrap_or(0) as usize
     }
 }
 
@@ -46,32 +25,57 @@ impl Decoder for RpcCodec {
 mod tests {
     use super::*;
     use crate::{AppendEntriesRequest, AppendEntriesResponse};
-    use raft_kv_core::{Command, LogEntry, NodeId};
+    use raft_kv_core::{Command, LogEntry};
 
     #[test]
     fn test_encode_decode_append_entries() {
-        let mut codec = RpcCodec;
-        let mut buffer = BytesMut::new();
-
-        let req = RpcMessage::AppendEntriesRequest(AppendEntriesRequest {
+        let request = RpcMessage::AppendEntriesRequest(AppendEntriesRequest {
             term: 1,
-            leader_id: 1,
+            leader_id: 101,
             prev_log_index: 0,
             prev_log_term: 0,
             entries: vec![LogEntry {
                 term: 1,
                 index: 1,
                 command: Command::Put {
-                    key: "foo".into(),
-                    value: "bar".into(),
+                    key: "foo".to_string(),
+                    value: "bar".to_string(),
                 },
             }],
             leader_commit: 0,
         });
 
-        codec.encode(req.clone(), &mut buffer).unwrap();
-        let decoded = codec.decode(&mut buffer).unwrap().unwrap();
+        let encoded = MessageCodec::encode(&request).unwrap();
+        let decoded = MessageCodec::decode(&encoded).unwrap();
 
-        assert!(matches!(decoded, RpcMessage::AppendEntriesRequest(_)));
+        match decoded {
+            RpcMessage::AppendEntriesRequest(req) => {
+                assert_eq!(req.term, 1);
+                assert_eq!(req.leader_id, 101);
+                assert_eq!(req.entries.len(), 1);
+            }
+            _ => panic!("Decoded wrong message type"),
+        }
+    }
+
+    #[test]
+    fn test_encode_decode_response() {
+        let response = RpcMessage::AppendEntriesResponse(AppendEntriesResponse {
+            term: 1,
+            success: true,
+            conflict_index: None,
+            conflict_term: None,
+        });
+
+        let encoded = MessageCodec::encode(&response).unwrap();
+        let decoded = MessageCodec::decode(&encoded).unwrap();
+
+        match decoded {
+            RpcMessage::AppendEntriesResponse(resp) => {
+                assert!(resp.success);
+                assert_eq!(resp.term, 1);
+            }
+            _ => panic!("Decoded wrong message type"),
+        }
     }
 }
