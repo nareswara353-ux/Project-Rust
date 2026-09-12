@@ -26,41 +26,38 @@ impl<S: Storage + 'static> Raft<S> {
     }
 
     pub async fn start_election(&self) -> Result<()> {
-        let (last_log_index, last_log_term) = {
+        let (last_log_index, last_log_term, current_term, node_id) = {
             let state = self.state.read().await;
-            (state.last_log_index(), state.last_log_term())
+            (state.last_log_index(), state.last_log_term(), state.current_term, state.id)
         };
 
-        let current_term = {
-            let state = self.state.read().await;
-            state.current_term
-        };
+        let new_term = current_term + 1;
 
-        let mut state = self.state.write().await;
-        state.current_term = current_term + 1;
-        state.role = Role::Candidate;
-        state.voted_for = Some(state.id);
-
-        drop(state);
+        {
+            let mut state = self.state.write().await;
+            // Cek lagi apakah term belum berubah saat kita menunggu lock
+            if state.current_term >= new_term {
+                return Ok(()); 
+            }
+            state.current_term = new_term;
+            state.role = Role::Candidate;
+            state.voted_for = Some(node_id);
+        }
 
         self.storage
-            .set_current_term(current_term + 1)
+            .set_current_term(new_term)
             .await
             .map_err(|e| RaftError::StorageError(e.to_string()))?;
         self.storage
-            .set_voted_for(Some(self.state.read().await.id))
+            .set_voted_for(Some(node_id))
             .await
             .map_err(|e| RaftError::StorageError(e.to_string()))?;
 
-        info!(
-            "Node {} starting election for term {}",
-            self.state.read().await.id,
-            current_term + 1
-        );
+        info!("Node {} starting election for term {}", node_id, new_term);
 
         let req = RequestVoteRequest {
-            term: current_term + 1,
-            candidate_id: self.state.read().await.id,
+            term: new_term,
+            candidate_id: node_id,
             last_log_index,
             last_log_term,
         };
@@ -92,21 +89,21 @@ impl<S: Storage + 'static> Raft<S> {
                                 drop(v);
                                 if won && s.role == Role::Candidate {
                                     s.become_leader();
-                                    info!(
-                                        "Node {} became leader for term {}",
-                                        s.id, s.current_term
-                                    );
+                                    info!("Node {} became leader for term {}", s.id, s.current_term);
                                 }
                             }
-                        } else if response.term > s.current_term && s.role != Role::Leader {
-                            let mut s = state_arc.write().await;
-                            if response.term > s.current_term && s.role != Role::Leader {
+                        } else if response.term > s.current_term {
+                             // Perlu lock ulang di sini karena 's' sudah drop atau scope berbeda
+                             // Tapi di struktur ini, kita bisa pakai 's' jika masih dalam scope yang sama.
+                             // Masalahnya di kode sebelumnya adalah 's' dideklarasikan di blok 'if' sebelumnya.
+                             // Mari kita perbaiki dengan logika yang lebih aman:
+                             if response.term > s.current_term {
                                 s.current_term = response.term;
                                 s.role = Role::Follower;
                                 s.voted_for = None;
                                 let _ = storage.set_current_term(s.current_term).await;
                                 let _ = storage.set_voted_for(None).await;
-                            }
+                             }
                         }
                     }
                     Err(e) => warn!("Failed to request vote from {}: {}", peer_id, e),
@@ -336,9 +333,8 @@ impl<S: Storage + 'static> Raft<S> {
                                     s.commit_index = max(s.commit_index, index);
                                 }
                             }
-                        } else if response.term > s.current_term && s.role != Role::Leader {
-                            let mut s = state_clone.write().await;
-                            if response.term > s.current_term && s.role != Role::Leader {
+                        } else if response.term > s.current_term {
+                            if response.term > s.current_term {
                                 s.current_term = response.term;
                                 s.role = Role::Follower;
                                 s.voted_for = None;
