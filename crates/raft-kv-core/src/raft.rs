@@ -1,88 +1,272 @@
-use crate::types::{Command, Index, LogEntry, NodeId, State, Term};
-use std::time::{Duration, Instant};
+use crate::message::{AppendEntriesRequest, AppendEntriesResponse, Command, LogEntry, RequestVoteRequest, RequestVoteResponse, Role};
+use crate::node::{Node, NodeState};
+use crate::storage::Storage;
+use crate::error::{RaftError, Result};
+use std::sync::Arc;
+use tokio::sync::RwLock;
+use tracing::{debug, info, warn};
 
-pub struct RaftNode {
-    pub id: NodeId,
-    pub state: State,
-    pub current_term: Term,
-    pub voted_for: Option<NodeId>,
-    pub log: Vec<LogEntry>,
-    pub commit_index: Index,
-    pub last_applied: Index,
-    pub next_index: Vec<Index>,
-    pub match_index: Vec<Index>,
-    pub election_timeout: Duration,
-    pub heartbeat_interval: Duration,
-    pub last_heartbeat: Instant,
-    pub cluster_size: usize,
+pub struct Raft<S: Storage> {
+    state: Arc<RwLock<NodeState>>,
+    storage: Arc<S>,
+    peers: Vec<Node>,
 }
 
-impl RaftNode {
-    pub fn new(id: NodeId, cluster_size: usize) -> Self {
+impl<S: Storage> Raft<S> {
+    pub fn new(node_id: u64, storage: S, peers: Vec<Node>) -> Self {
+        let state = NodeState::new(node_id);
         Self {
-            id,
-            state: State::Follower,
-            current_term: 0,
-            voted_for: None,
-            log: Vec::new(),
-            commit_index: 0,
-            last_applied: 0,
-            next_index: vec![1; cluster_size],
-            match_index: vec![0; cluster_size],
-            election_timeout: Duration::from_millis(300),
-            heartbeat_interval: Duration::from_millis(100),
-            last_heartbeat: Instant::now(),
-            cluster_size,
+            state: Arc::new(RwLock::new(state)),
+            storage: Arc::new(storage),
+            peers,
         }
     }
 
-    pub fn become_follower(&mut self, term: Term) {
-        self.state = State::Follower;
-        self.current_term = term;
-        self.voted_for = None;
-    }
+    pub async fn start_election(&self) -> Result<()> {
+        let mut state = self.state.write().await;
+        state.current_term += 1;
+        state.role = Role::Candidate;
+        state.voted_for = Some(state.id);
+        
+        self.storage.set_current_term(state.current_term).await
+            .map_err(|e| RaftError::StorageError(e.to_string()))?;
+        self.storage.set_voted_for(Some(state.id)).await
+            .map_err(|e| RaftError::StorageError(e.to_string()))?;
 
-    pub fn become_candidate(&mut self) {
-        self.state = State::Candidate;
-        self.current_term += 1;
-        self.voted_for = Some(self.id);
-    }
+        info!("Node {} starting election for term {}", state.id, state.current_term);
+        
+        let last_log_index = state.log.last().map(|e| e.index).unwrap_or(0);
+        let last_log_term = state.log.last().map(|e| e.term).unwrap_or(0);
 
-    pub fn become_leader(&mut self) {
-        self.state = State::Leader;
-        let next_idx = self.last_log_index() + 1;
-        self.next_index.fill(next_idx);
-        self.match_index.fill(0);
-    }
+        let request = RequestVoteRequest {
+            term: state.current_term,
+            candidate_id: state.id,
+            last_log_index,
+            last_log_term,
+        };
 
-    pub fn last_log_index(&self) -> Index {
-        self.log.last().map(|e| e.index).unwrap_or(0)
-    }
+        drop(state);
 
-    pub fn last_log_term(&self) -> Term {
-        self.log.last().map(|e| e.term).unwrap_or(0)
-    }
+        let mut votes = 1; 
+        let quorum = (self.peers.len() / 2) + 1;
 
-    pub fn get_entry(&self, index: Index) -> Option<&LogEntry> {
-        if index == 0 {
-            return Some(&LogEntry {
-                term: 0,
-                index: 0,
-                command: Command::Noop,
+        for peer in &self.peers {
+            let req = request.clone();
+            let storage = self.storage.clone();
+            let state_arc = self.state.clone();
+            
+            tokio::spawn(async move {
+                match send_vote_request(peer.address.clone(), req).await {
+                    Ok(response) => {
+                        if response.vote_granted {
+                            let mut s = state_arc.write().await;
+                            if s.current_term == response.term {
+                                votes += 1;
+                                if votes >= quorum && s.role == Role::Candidate {
+                                    s.become_leader();
+                                    info!("Node {} became leader for term {}", s.id, s.current_term);
+                                }
+                            }
+                        } else if response.term > s.current_term {
+                            let mut s = state_arc.write().await;
+                            s.step_down(response.term);
+                        }
+                    }
+                    Err(e) => warn!("Failed to get vote from {}: {}", peer.address, e),
+                }
             });
         }
-        self.log.get((index - 1) as usize)
+
+        Ok(())
     }
 
-    pub fn append_entry(&mut self, entry: LogEntry) {
-        self.log.push(entry);
+    pub async fn handle_append_entries(&self, req: AppendEntriesRequest) -> Result<AppendEntriesResponse> {
+        let mut state = self.state.write().await;
+
+        if req.term < state.current_term {
+            return Ok(AppendEntriesResponse {
+                term: state.current_term,
+                success: false,
+                conflict_index: None,
+                conflict_term: None,
+            });
+        }
+
+        if req.term > state.current_term {
+            state.step_down(req.term);
+        }
+
+        state.reset_election_timeout();
+
+        if !state.match_log_entry(req.prev_log_index, req.prev_log_term) {
+            let conflict_index = state.log.last().map(|e| e.index).unwrap_or(0);
+            let conflict_term = state.log.last().map(|e| e.term);
+            
+            return Ok(AppendEntriesResponse {
+                term: state.current_term,
+                success: false,
+                conflict_index: Some(conflict_index),
+                conflict_term,
+            });
+        }
+
+        for entry in &req.entries {
+            if let Some(existing) = state.get_entry_at(entry.index) {
+                if existing.term != entry.term {
+                    state.truncate_from(entry.index);
+                    state.log.push(entry.clone());
+                }
+            } else {
+                state.log.push(entry.clone());
+            }
+        }
+
+        if req.leader_commit > state.commit_index {
+            state.commit_index = std::cmp::min(req.leader_commit, state.log.last().map(|e| e.index).unwrap_or(0));
+        }
+
+        Ok(AppendEntriesResponse {
+            term: state.current_term,
+            success: true,
+            conflict_index: None,
+            conflict_term: None,
+        })
     }
 
-    pub fn tick(&mut self) -> bool {
-        self.last_heartbeat.elapsed() >= self.election_timeout
+    pub async fn handle_request_vote(&self, req: RequestVoteRequest) -> Result<RequestVoteResponse> {
+        let mut state = self.state.write().await;
+
+        if req.term < state.current_term {
+            return Ok(RequestVoteResponse {
+                term: state.current_term,
+                vote_granted: false,
+            });
+        }
+
+        if req.term > state.current_term {
+            state.step_down(req.term);
+        }
+
+        if state.voted_for.is_some() && state.voted_for != Some(req.candidate_id) {
+            return Ok(RequestVoteResponse {
+                term: state.current_term,
+                vote_granted: false,
+            });
+        }
+
+        let last_log_index = state.log.last().map(|e| e.index).unwrap_or(0);
+        let last_log_term = state.log.last().map(|e| e.term).unwrap_or(0);
+
+        if req.last_log_term < last_log_term || 
+           (req.last_log_term == last_log_term && req.last_log_index < last_log_index) {
+            return Ok(RequestVoteResponse {
+                term: state.current_term,
+                vote_granted: false,
+            });
+        }
+
+        state.voted_for = Some(req.candidate_id);
+        self.storage.set_voted_for(Some(req.candidate_id)).await
+            .map_err(|e| RaftError::StorageError(e.to_string()))?;
+        
+        state.reset_election_timeout();
+
+        Ok(RequestVoteResponse {
+            term: state.current_term,
+            vote_granted: true,
+        })
     }
 
-    pub fn reset_election_timer(&mut self) {
-        self.last_heartbeat = Instant::now();
+    pub async fn submit_command(&self, command: Command) -> Result<u64> {
+        let mut state = self.state.write().await;
+        
+        if state.role != Role::Leader {
+            return Err(RaftError::NotLeader);
+        }
+
+        let next_index = state.log.last().map(|e| e.index).unwrap_or(0) + 1;
+        let entry = LogEntry {
+            term: state.current_term,
+            index: next_index,
+            command,
+        };
+
+        state.log.push(entry.clone());
+        
+        drop(state);
+
+        self.replicate_to_peers(next_index).await?;
+
+        Ok(next_index)
     }
+
+    async fn replicate_to_peers(&self, index: u64) -> Result<()> {
+        let state = self.state.read().await;
+        let entries_to_send: Vec<LogEntry> = state.log.iter()
+            .filter(|e| e.index >= index)
+            .cloned()
+            .collect();
+        
+        if entries_to_send.is_empty() {
+            return Ok(());
+        }
+
+        let prev_log_index = if index > 1 { index - 1 } else { 0 };
+        let prev_log_term = state.log.iter()
+            .find(|e| e.index == prev_log_index)
+            .map(|e| e.term)
+            .unwrap_or(0);
+
+        let request = AppendEntriesRequest {
+            term: state.current_term,
+            leader_id: state.id,
+            prev_log_index,
+            prev_log_term,
+            entries: entries_to_send,
+            leader_commit: state.commit_index,
+        };
+
+        drop(state);
+
+        let mut successful_replications = 1; 
+        let quorum = (self.peers.len() / 2) + 1;
+        let state_arc = self.state.clone();
+
+        for peer in &self.peers {
+            let req = request.clone();
+            let storage = self.storage.clone();
+            let state_clone = state_arc.clone();
+            
+            tokio::spawn(async move {
+                match send_append_entries(peer.address.clone(), req).await {
+                    Ok(response) => {
+                        if response.success {
+                            let mut s = state_clone.write().await;
+                            if s.current_term == response.term {
+                                successful_replications += 1;
+                                if successful_replications >= quorum {
+                                    let last_index = s.log.last().map(|e| e.index).unwrap_or(0);
+                                    s.commit_index = last_index;
+                                }
+                            }
+                        } else if response.term > s.current_term {
+                            let mut s = state_clone.write().await;
+                            s.step_down(response.term);
+                        }
+                    }
+                    Err(e) => warn!("Replication to {} failed: {}", peer.address, e),
+                }
+            });
+        }
+
+        Ok(())
+    }
+}
+
+async fn send_vote_request(address: String, req: RequestVoteRequest) -> Result<RequestVoteResponse> {
+    todo!("Implement network call")
+}
+
+async fn send_append_entries(address: String, req: AppendEntriesRequest) -> Result<AppendEntriesResponse> {
+    todo!("Implement network call")
 }
