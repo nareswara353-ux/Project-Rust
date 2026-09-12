@@ -1,5 +1,4 @@
-use crate::message::{LogEntry, Snapshot};
-use std::cmp::max;
+use crate::message::LogEntry;
 
 pub type NodeId = u64;
 

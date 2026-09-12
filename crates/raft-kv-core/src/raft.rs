@@ -5,6 +5,7 @@ use crate::message::{
 };
 use crate::node::{Node, NodeState, Role};
 use crate::storage::Storage;
+use std::cmp::max;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use tracing::{info, warn};
@@ -55,14 +56,17 @@ impl<S: Storage> Raft<S> {
 
         drop(state);
 
-        let mut votes = 1;
+        let votes = Arc::new(RwLock::new(1));
         let quorum = (self.peers.len() / 2) + 1;
         let state_arc = self.state.clone();
+        let storage = self.storage.clone();
 
         for peer in &self.peers {
             let req = req.clone();
-            let storage = self.storage.clone();
+            let storage = storage.clone();
             let state_arc = state_arc.clone();
+            let votes = votes.clone();
+            let quorum = quorum;
             let peer_id = peer.id;
 
             tokio::spawn(async move {
@@ -71,8 +75,9 @@ impl<S: Storage> Raft<S> {
                         if response.vote_granted {
                             let mut s = state_arc.write().await;
                             if s.role == Role::Candidate {
-                                votes += 1;
-                                if votes >= quorum && s.role == Role::Candidate {
+                                let mut v = votes.write().await;
+                                *v += 1;
+                                if *v >= quorum && s.role == Role::Candidate {
                                     s.become_leader();
                                     info!(
                                         "Node {} became leader for term {}",
@@ -280,14 +285,17 @@ impl<S: Storage> Raft<S> {
 
         drop(state);
 
-        let mut successful_replications = 1;
+        let successful_replications = Arc::new(RwLock::new(1));
         let quorum = (self.peers.len() / 2) + 1;
         let state_clone = self.state.clone();
+        let storage = self.storage.clone();
 
         for peer in &self.peers {
             let req = req.clone();
-            let storage = self.storage.clone();
+            let storage = storage.clone();
             let state_clone = state_clone.clone();
+            let successful_replications = successful_replications.clone();
+            let quorum = quorum;
             let peer_id = peer.id;
 
             tokio::spawn(async move {
@@ -296,8 +304,9 @@ impl<S: Storage> Raft<S> {
                         if response.success {
                             let mut s = state_clone.write().await;
                             if s.role == Role::Leader {
-                                successful_replications += 1;
-                                if successful_replications >= quorum && s.role == Role::Leader {
+                                let mut r = successful_replications.write().await;
+                                *r += 1;
+                                if *r >= quorum && s.role == Role::Leader {
                                     s.commit_index = max(s.commit_index, index);
                                 }
                             }
