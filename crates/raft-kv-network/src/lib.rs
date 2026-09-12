@@ -1,11 +1,12 @@
+pub mod client;
+pub mod codec;
+pub mod server;
 pub mod transport;
 
 use bytes::Bytes;
 use raft_kv_core::{LogEntry, NodeId};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
-
-pub use transport::{Transport, TransportPair};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum RpcMessage {
@@ -77,3 +78,7 @@ pub enum NetworkError {
     #[error("Timeout error")]
     Timeout,
 }
+
+pub use client::RpcClient;
+pub use server::RpcServer;
+pub use transport::{Transport, TransportPair};
