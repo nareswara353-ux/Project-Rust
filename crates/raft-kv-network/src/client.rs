@@ -32,7 +32,11 @@ impl RpcClient {
         self
     }
 
-    pub async fn send(&self, addr: SocketAddr, msg: RpcMessage) -> Result<RpcMessage, NetworkError> {
+    pub async fn send(
+        &self,
+        addr: SocketAddr,
+        msg: RpcMessage,
+    ) -> Result<RpcMessage, NetworkError> {
         let stream = timeout(self.connect_timeout, TcpStream::connect(addr))
             .await
             .map_err(|_| NetworkError::Timeout)?
@@ -62,7 +66,11 @@ impl RpcClient {
         Ok(response)
     }
 
-    pub async fn send_one_way(&self, addr: SocketAddr, msg: RpcMessage) -> Result<(), NetworkError> {
+    pub async fn send_one_way(
+        &self,
+        addr: SocketAddr,
+        msg: RpcMessage,
+    ) -> Result<(), NetworkError> {
         let stream = timeout(self.connect_timeout, TcpStream::connect(addr))
             .await
             .map_err(|_| NetworkError::Timeout)?
