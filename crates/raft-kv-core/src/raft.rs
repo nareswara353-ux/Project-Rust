@@ -73,7 +73,6 @@ impl<S: Storage + 'static> Raft<S> {
             let storage = storage.clone();
             let state_arc = state_arc.clone();
             let votes = votes.clone();
-            let quorum = quorum;
             let peer_addr = peer.addr.clone();
             let peer_id = peer.id;
 
@@ -81,7 +80,7 @@ impl<S: Storage + 'static> Raft<S> {
                 match send_vote_request(peer_addr, req).await {
                     Ok(response) => {
                         // LOGIKA DIPERBAIKI: Semua operasi state ada di dalam satu scope lock
-                        let mut s = state_arc.write().await;
+                        let s = state_arc.write().await;
 
                         if response.vote_granted && s.role == Role::Candidate {
                             // Hitung vote sambil masih memegang lock state
@@ -296,7 +295,7 @@ impl<S: Storage + 'static> Raft<S> {
                 return Ok(());
             }
 
-            let prev_log_index = if index > 1 { index - 1 } else { 0 };
+            let prev_log_index = index.saturating_sub(1);
             let prev_log_term = state
                 .log
                 .iter()
@@ -334,7 +333,6 @@ impl<S: Storage + 'static> Raft<S> {
             let storage = storage.clone();
             let state_clone = state_clone.clone();
             let successful_replications = successful_replications.clone();
-            let quorum = quorum;
             let peer_addr = peer.addr.clone();
             let peer_id = peer.id;
 
