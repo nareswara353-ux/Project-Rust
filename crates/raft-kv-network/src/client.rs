@@ -1,11 +1,11 @@
-use crate::codec::{decode, encode};
+use crate::codec::{decode_message, encode_message};
 use crate::{NetworkError, RpcMessage};
 use std::net::SocketAddr;
 use std::time::Duration;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 use tokio::time::timeout;
-use tracing::{error, info};
+use tracing::info;
 
 pub struct RpcClient {
     connect_timeout: Duration,
@@ -44,7 +44,7 @@ impl RpcClient {
 
         let (mut reader, mut writer) = stream.into_split();
 
-        let encoded = encode(&msg)?;
+        let encoded = encode_message(&msg)?;
         writer.write_all(&encoded).await?;
         writer.flush().await?;
 
@@ -60,7 +60,7 @@ impl RpcClient {
             return Err(NetworkError::Connection("Connection closed by peer".into()));
         }
 
-        let response = decode(&buf[..n])?;
+        let response = decode_message(&buf[..n])?;
         info!("Received response from {}: {:?}", addr, response);
 
         Ok(response)
@@ -78,7 +78,7 @@ impl RpcClient {
 
         let (_, mut writer) = stream.into_split();
 
-        let encoded = encode(&msg)?;
+        let encoded = encode_message(&msg)?;
         writer.write_all(&encoded).await?;
         writer.flush().await?;
 

@@ -1,8 +1,8 @@
-use crate::codec::{decode, encode};
+use crate::codec::{decode_message, encode_message};
 use crate::{NetworkError, RpcMessage};
 use raft_kv_core::NodeId;
 use std::net::SocketAddr;
-use tokio::io::AsyncReadExt;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::mpsc;
 use tracing::{error, info, warn};
@@ -44,7 +44,7 @@ impl RpcServer {
 async fn handle_connection(
     mut stream: TcpStream,
     tx: mpsc::Sender<RpcMessage>,
-    local_id: NodeId,
+    _local_id: NodeId,
     peer_addr: SocketAddr,
 ) -> Result<(), NetworkError> {
     let mut buf = vec![0u8; 4096];
@@ -56,7 +56,7 @@ async fn handle_connection(
             break;
         }
 
-        let msg = decode(&buf[..n])?;
+        let msg = decode_message(&buf[..n])?;
         info!("Received message from {}: {:?}", peer_addr, msg);
 
         if let Err(e) = tx.send(msg).await {
