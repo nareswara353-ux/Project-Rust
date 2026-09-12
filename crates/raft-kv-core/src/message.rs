@@ -5,13 +5,6 @@ pub type NodeId = u64;
 pub type Term = u64;
 pub type Index = u64;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub enum Role {
-    Follower,
-    Candidate,
-    Leader,
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum Command {
     Noop,

@@ -1,18 +1,18 @@
 use crate::error::{RaftError, Result};
 use crate::message::{
     AppendEntriesRequest, AppendEntriesResponse, Command, LogEntry, RequestVoteRequest,
-    RequestVoteResponse, Role,
+    RequestVoteResponse,
 };
-use crate::node::{Node, NodeState};
+use crate::node::{Node, NodeState, Role};
 use crate::storage::Storage;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use tracing::{info, warn};
 
 pub struct Raft<S: Storage> {
-    pub state: Arc<RwLock<NodeState>>,
-    pub storage: Arc<S>,
-    pub peers: Vec<Node>,
+    state: Arc<RwLock<NodeState>>,
+    storage: Arc<S>,
+    peers: Vec<Node>,
 }
 
 impl<S: Storage> Raft<S> {
@@ -44,10 +44,9 @@ impl<S: Storage> Raft<S> {
             state.id, state.current_term
         );
 
-        let last_log_index = state.log.last().map(|e| e.index).unwrap_or(0);
-        let last_log_term = state.log.last().map(|e| e.term).unwrap_or(0);
-
-        let request = RequestVoteRequest {
+        let last_log_index = state.last_log_index();
+        let last_log_term = state.last_log_term();
+        let req = RequestVoteRequest {
             term: state.current_term,
             candidate_id: state.id,
             last_log_index,
@@ -58,27 +57,41 @@ impl<S: Storage> Raft<S> {
 
         let mut votes = 1;
         let quorum = (self.peers.len() / 2) + 1;
+        let state_arc = self.state.clone();
 
         for peer in &self.peers {
-            let req = request.clone();
+            let req = req.clone();
             let storage = self.storage.clone();
-            let state_arc = self.state.clone();
+            let state_arc = state_arc.clone();
+            let peer_id = peer.id;
 
             tokio::spawn(async move {
-                match send_vote_request(peer.address.clone(), req).await {
+                match send_vote_request(peer.addr.clone(), req).await {
                     Ok(response) => {
                         if response.vote_granted {
                             let mut s = state_arc.write().await;
-                            votes += 1;
-                            if votes >= quorum && s.role == Role::Candidate {
-                                s.become_leader();
-                                info!("Node {} became leader for term {}", s.id, s.current_term);
+                            if s.role == Role::Candidate {
+                                votes += 1;
+                                if votes >= quorum && s.role == Role::Candidate {
+                                    s.become_leader();
+                                    info!(
+                                        "Node {} became leader for term {}",
+                                        s.id, s.current_term
+                                    );
+                                }
                             }
                         } else if response.term > s.current_term {
-                            // Error: s is out of scope here, need to fix logic
+                            let mut s = state_arc.write().await;
+                            if response.term > s.current_term {
+                                s.current_term = response.term;
+                                s.role = Role::Follower;
+                                s.voted_for = None;
+                                let _ = storage.set_current_term(s.current_term).await;
+                                let _ = storage.set_voted_for(None).await;
+                            }
                         }
                     }
-                    Err(e) => warn!("Failed to get vote from {}: {}", peer.id, e),
+                    Err(e) => warn!("Failed to request vote from {}: {}", peer_id, e),
                 }
             });
         }
@@ -106,7 +119,7 @@ impl<S: Storage> Raft<S> {
             state.role = Role::Follower;
             state.voted_for = None;
             self.storage
-                .set_current_term(req.term)
+                .set_current_term(state.current_term)
                 .await
                 .map_err(|e| RaftError::StorageError(e.to_string()))?;
             self.storage
@@ -118,7 +131,7 @@ impl<S: Storage> Raft<S> {
         state.reset_election_timeout();
 
         if !state.match_log_entry(req.prev_log_index, req.prev_log_term) {
-            let conflict_index = state.log.last().map(|e| e.index).unwrap_or(0);
+            let conflict_index = state.last_log_index();
             let conflict_term = state.log.last().map(|e| e.term);
 
             return Ok(AppendEntriesResponse {
@@ -129,22 +142,19 @@ impl<S: Storage> Raft<S> {
             });
         }
 
-        for entry in &req.entries {
-            if let Some(existing) = state.log.iter().find(|e| e.index == entry.index) {
+        for entry in req.entries {
+            if let Some(existing) = state.get_entry(entry.index) {
                 if existing.term != entry.term {
-                    state.log.truncate((entry.index - 1) as usize);
-                    state.log.push(entry.clone());
+                    state.log.retain(|e| e.index < entry.index);
+                    state.log.push(entry);
                 }
             } else {
-                state.log.push(entry.clone());
+                state.log.push(entry);
             }
         }
 
         if req.leader_commit > state.commit_index {
-            state.commit_index = std::cmp::min(
-                req.leader_commit,
-                state.log.last().map(|e| e.index).unwrap_or(0),
-            );
+            state.commit_index = std::cmp::min(req.leader_commit, state.last_log_index());
         }
 
         Ok(AppendEntriesResponse {
@@ -173,7 +183,7 @@ impl<S: Storage> Raft<S> {
             state.role = Role::Follower;
             state.voted_for = None;
             self.storage
-                .set_current_term(req.term)
+                .set_current_term(state.current_term)
                 .await
                 .map_err(|e| RaftError::StorageError(e.to_string()))?;
             self.storage
@@ -182,8 +192,8 @@ impl<S: Storage> Raft<S> {
                 .map_err(|e| RaftError::StorageError(e.to_string()))?;
         }
 
-        let last_log_index = state.log.last().map(|e| e.index).unwrap_or(0);
-        let last_log_term = state.log.last().map(|e| e.term).unwrap_or(0);
+        let last_log_index = state.last_log_index();
+        let last_log_term = state.last_log_term();
 
         if req.last_log_term < last_log_term
             || (req.last_log_term == last_log_term && req.last_log_index < last_log_index)
@@ -203,16 +213,16 @@ impl<S: Storage> Raft<S> {
 
             state.reset_election_timeout();
 
-            return Ok(RequestVoteResponse {
+            Ok(RequestVoteResponse {
                 term: state.current_term,
                 vote_granted: true,
-            });
+            })
+        } else {
+            Ok(RequestVoteResponse {
+                term: state.current_term,
+                vote_granted: false,
+            })
         }
-
-        Ok(RequestVoteResponse {
-            term: state.current_term,
-            vote_granted: false,
-        })
     }
 
     pub async fn submit_command(&self, command: Command) -> Result<u64> {
@@ -222,7 +232,7 @@ impl<S: Storage> Raft<S> {
             return Err(RaftError::NotLeader);
         }
 
-        let next_index = state.log.last().map(|e| e.index + 1).unwrap_or(1);
+        let next_index = state.last_log_index() + 1;
         let entry = LogEntry {
             term: state.current_term,
             index: next_index,
@@ -259,7 +269,7 @@ impl<S: Storage> Raft<S> {
             .map(|e| e.term)
             .unwrap_or(0);
 
-        let request = AppendEntriesRequest {
+        let req = AppendEntriesRequest {
             term: state.current_term,
             leader_id: state.id,
             prev_log_index,
@@ -272,27 +282,37 @@ impl<S: Storage> Raft<S> {
 
         let mut successful_replications = 1;
         let quorum = (self.peers.len() / 2) + 1;
-        let state_arc = self.state.clone();
+        let state_clone = self.state.clone();
 
         for peer in &self.peers {
-            let req = request.clone();
+            let req = req.clone();
             let storage = self.storage.clone();
-            let state_clone = state_arc.clone();
+            let state_clone = state_clone.clone();
+            let peer_id = peer.id;
 
             tokio::spawn(async move {
-                match send_append_entries(peer.address.clone(), req).await {
+                match send_append_entries(peer.addr.clone(), req).await {
                     Ok(response) => {
                         if response.success {
                             let mut s = state_clone.write().await;
-                            successful_replications += 1;
-                            if successful_replications >= quorum && s.role == Role::Leader {
-                                s.commit_index = std::max(s.commit_index, index);
+                            if s.role == Role::Leader {
+                                successful_replications += 1;
+                                if successful_replications >= quorum && s.role == Role::Leader {
+                                    s.commit_index = max(s.commit_index, index);
+                                }
                             }
                         } else if response.term > s.current_term {
-                            // Error: s is out of scope here
+                            let mut s = state_clone.write().await;
+                            if response.term > s.current_term {
+                                s.current_term = response.term;
+                                s.role = Role::Follower;
+                                s.voted_for = None;
+                                let _ = storage.set_current_term(s.current_term).await;
+                                let _ = storage.set_voted_for(None).await;
+                            }
                         }
                     }
-                    Err(e) => warn!("Failed to replicate to {}: {}", peer.id, e),
+                    Err(e) => warn!("Failed to replicate to {}: {}", peer_id, e),
                 }
             });
         }

@@ -1,5 +1,6 @@
-use crate::error::{RaftError, Result};
 use crate::message::{Command, Snapshot};
+use crate::error::{RaftError, Result};
+use bytes::Bytes;
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 
@@ -94,7 +95,7 @@ impl StateMachine {
         Ok(Snapshot {
             last_included_index: *last_index,
             last_included_term: 0,
-            data: snapshot_data,
+            data: snapshot_data.into(),
         })
     }
 
