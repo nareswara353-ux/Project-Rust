@@ -1,98 +1,69 @@
-use crate::transport::Transport;
-use crate::{
-    AppendEntriesRequest, AppendEntriesResponse, InstallSnapshotRequest,
-    InstallSnapshotResponse, NetworkError, RequestVoteRequest, RequestVoteResponse, RpcMessage,
-};
+use crate::codec::{decode_message, encode_message};
+use crate::{NetworkError, RpcMessage};
 use raft_kv_core::NodeId;
-use std::sync::Arc;
+use std::net::SocketAddr;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::mpsc;
-
-pub type AppendEntriesHandler = dyn Fn(AppendEntriesRequest) -> AppendEntriesResponse + Send + Sync + 'static;
-pub type RequestVoteHandler = dyn Fn(RequestVoteRequest) -> RequestVoteResponse + Send + Sync + 'static;
-pub type InstallSnapshotHandler = dyn Fn(InstallSnapshotRequest) -> InstallSnapshotResponse + Send + Sync + 'static;
+use tracing::{error, info, warn};
 
 pub struct RpcServer {
+    addr: SocketAddr,
     node_id: NodeId,
-    transport: Arc<Transport>,
-    append_entries_handler: Option<Arc<AppendEntriesHandler>>,
-    request_vote_handler: Option<Arc<RequestVoteHandler>>,
-    install_snapshot_handler: Option<Arc<InstallSnapshotHandler>>,
+    tx: mpsc::Sender<RpcMessage>,
 }
 
 impl RpcServer {
-    pub fn new(node_id: NodeId, transport: Arc<Transport>) -> Self {
-        Self {
-            node_id,
-            transport,
-            append_entries_handler: None,
-            request_vote_handler: None,
-            install_snapshot_handler: None,
-        }
+    pub fn new(addr: SocketAddr, node_id: NodeId, tx: mpsc::Sender<RpcMessage>) -> Self {
+        Self { addr, node_id, tx }
     }
 
-    pub fn with_append_entries_handler<F>(mut self, handler: F) -> Self
-    where
-        F: Fn(AppendEntriesRequest) -> AppendEntriesResponse + Send + Sync + 'static,
-    {
-        self.append_entries_handler = Some(Arc::new(handler));
-        self
-    }
+    pub async fn run(self) -> Result<(), NetworkError> {
+        let listener = TcpListener::bind(self.addr).await?;
+        info!("RPC Server listening on {}", self.addr);
 
-    pub fn with_request_vote_handler<F>(mut self, handler: F) -> Self
-    where
-        F: Fn(RequestVoteRequest) -> RequestVoteResponse + Send + Sync + 'static,
-    {
-        self.request_vote_handler = Some(Arc::new(handler));
-        self
-    }
-
-    pub fn with_install_snapshot_handler<F>(mut self, handler: F) -> Self
-    where
-        F: Fn(InstallSnapshotRequest) -> InstallSnapshotResponse + Send + Sync + 'static,
-    {
-        self.install_snapshot_handler = Some(Arc::new(handler));
-        self
-    }
-
-    pub async fn start(&self) -> Result<(), NetworkError> {
-        let (tx, mut rx) = mpsc::channel::<RpcMessage>(100);
-        self.transport.register_node(self.node_id, tx).await;
-
-        println!("RPC Server started for node {}", self.node_id);
-
-        while let Some(msg) = rx.recv().await {
-            match msg {
-                RpcMessage::AppendEntriesRequest(req) => {
-                    if let Some(handler) = &self.append_entries_handler {
-                        let resp = handler(req);
-                        let _ = self
-                            .transport
-                            .send(req.leader_id, RpcMessage::AppendEntriesResponse(resp))
-                            .await;
-                    }
+        loop {
+            match listener.accept().await {
+                Ok((stream, peer_addr)) => {
+                    let tx = self.tx.clone();
+                    let node_id = self.node_id;
+                    tokio::spawn(async move {
+                        if let Err(e) = handle_connection(stream, tx, node_id, peer_addr).await {
+                            warn!("Connection error from {}: {}", peer_addr, e);
+                        }
+                    });
                 }
-                RpcMessage::RequestVoteRequest(req) => {
-                    if let Some(handler) = &self.request_vote_handler {
-                        let resp = handler(req);
-                        let _ = self
-                            .transport
-                            .send(req.candidate_id, RpcMessage::RequestVoteResponse(resp))
-                            .await;
-                    }
+                Err(e) => {
+                    error!("Accept error: {}", e);
                 }
-                RpcMessage::InstallSnapshotRequest(req) => {
-                    if let Some(handler) = &self.install_snapshot_handler {
-                        let resp = handler(req);
-                        let _ = self
-                            .transport
-                            .send(req.leader_id, RpcMessage::InstallSnapshotResponse(resp))
-                            .await;
-                    }
-                }
-                _ => {}
             }
         }
-
-        Ok(())
     }
+}
+
+async fn handle_connection(
+    mut stream: TcpStream,
+    tx: mpsc::Sender<RpcMessage>,
+    local_id: NodeId,
+    peer_addr: SocketAddr,
+) -> Result<(), NetworkError> {
+    let mut buf = vec![0u8; 4096];
+
+    loop {
+        let n = stream.read(&mut buf).await?;
+        if n == 0 {
+            info!("Connection closed by {}", peer_addr);
+            break;
+        }
+
+        let msg = decode_message(&buf[..n])?;
+        info!("Received message from {}: {:?}", peer_addr, msg);
+
+        if let Err(e) = tx.send(msg).await {
+            error!("Failed to forward message to core: {}", e);
+            break;
+        }
+    }
+
+    Ok(())
 }
