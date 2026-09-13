@@ -11,30 +11,13 @@ pub use server::RpcServer;
 pub use transport::{Transport, TransportPair};
 
 // Re-export message types from core
-pub use raft_kv_core::message::{
-    AppendEntriesRequest, AppendEntriesResponse, Command, InstallSnapshotRequest,
-    InstallSnapshotResponse, LogEntry, RequestVoteRequest, RequestVoteResponse, Snapshot,
-};
+pub use raft_kv_core::message::*;
 
-// Define RpcMessage locally or re-export if defined in core
-// For now, let's assume we define the envelope here or use a type alias if core has it.
-// If core doesn't have RpcMessage enum, we define it here.
-use raft_kv_core::message::*; // Ensure all message types are available
+// Re-export error types
+pub use raft_kv_core::error::RaftError;
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub enum RpcMessage {
-    AppendEntriesRequest(AppendEntriesRequest),
-    AppendEntriesResponse(AppendEntriesResponse),
-    RequestVoteRequest(RequestVoteRequest),
-    RequestVoteResponse(RequestVoteResponse),
-    InstallSnapshotRequest(InstallSnapshotRequest),
-    InstallSnapshotResponse(InstallSnapshotResponse),
-}
-
-// Define NetworkError locally
-use thiserror::Error;
-
-#[derive(Error, Debug)]
+// Define local NetworkError if needed, or rely on RaftError::Network
+#[derive(Debug, thiserror::Error)]
 pub enum NetworkError {
     #[error("Serialization error: {0}")]
     Serialization(String),
@@ -45,5 +28,3 @@ pub enum NetworkError {
     #[error("Timeout error")]
     Timeout,
 }
-
-pub use raft_kv_core::error::RaftError;
