@@ -1,10 +1,4 @@
 //! Network layer for Raft-KV consensus communication.
-//!
-//! This crate handles all inter-node communication including:
-//! - RPC message definitions (AppendEntries, RequestVote, InstallSnapshot)
-//! - TCP Server for receiving requests
-//! - TCP Client for sending requests with timeouts
-//! - In-memory transport for testing
 
 pub mod client;
 pub mod codec;
@@ -16,9 +10,24 @@ pub use client::RpcClient;
 pub use server::RpcServer;
 pub use transport::{Transport, TransportPair};
 
-// Re-export message types
-pub use raft_kv_core::error::RaftError;
+// Re-export message types from core
 pub use raft_kv_core::message::*;
 
-// Re-export network-specific error if distinct (or use core's)
-// For now, we rely on RaftError::Network variant
+// Define NetworkError locally or re-export from core if available
+// Since we moved messages to core, let's define NetworkError here for network-specific issues
+use thiserror::Error;
+
+#[derive(Error, Debug)]
+pub enum NetworkError {
+    #[error("Serialization error: {0}")]
+    Serialization(String),
+    #[error("IO error: {0}")]
+    Io(#[from] std::io::Error),
+    #[error("Connection error: {0}")]
+    Connection(String),
+    #[error("Timeout error")]
+    Timeout,
+}
+
+// Re-export RaftError for consistency if needed, but NetworkError is preferred here
+pub use raft_kv_core::error::RaftError;
