@@ -5,27 +5,21 @@ pub mod codec;
 pub mod server;
 pub mod transport;
 
-// Re-export core types needed across the network module
-use bytes::Bytes;
-pub use raft_kv_core::error::RaftError;
-pub use raft_kv_core::message::{
-    AppendEntriesRequest, AppendEntriesResponse, Command, InstallSnapshotRequest,
-    InstallSnapshotResponse, LogEntry, RequestVoteRequest, RequestVoteResponse, Role,
+use raft_kv_core::{
+    InstallSnapshotRequest, InstallSnapshotResponse, LogEntry, RequestVoteRequest,
+    RequestVoteResponse,
 };
 use serde::{Deserialize, Serialize};
 
-// Define RpcMessage locally or re-export if defined in core
-// For this architecture, let's define it here as the network envelope
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub enum RpcMessage {
-    AppendEntriesRequest(AppendEntriesRequest),
-    AppendEntriesResponse(AppendEntriesResponse),
-    RequestVoteRequest(RequestVoteRequest),
-    RequestVoteResponse(RequestVoteResponse),
-    InstallSnapshotRequest(InstallSnapshotRequest),
-    InstallSnapshotResponse(InstallSnapshotResponse),
-}
+// Re-export main types
+pub use client::RpcClient;
+pub use server::RpcServer;
+pub use transport::{Transport, TransportPair};
 
+// Re-export error types
+pub use raft_kv_core::error::RaftError;
+
+/// Network-specific error type
 #[derive(Debug, thiserror::Error)]
 pub enum NetworkError {
     #[error("Serialization error: {0}")]
@@ -38,6 +32,34 @@ pub enum NetworkError {
     Timeout,
 }
 
-pub use client::RpcClient;
-pub use server::RpcServer;
-pub use transport::{Transport, TransportPair};
+/// Main RPC message envelope
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum RpcMessage {
+    AppendEntriesRequest(AppendEntriesRequest),
+    AppendEntriesResponse(AppendEntriesResponse),
+    RequestVoteRequest(RequestVoteRequest),
+    RequestVoteResponse(RequestVoteResponse),
+    InstallSnapshotRequest(InstallSnapshotRequest),
+    InstallSnapshotResponse(InstallSnapshotResponse),
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AppendEntriesRequest {
+    pub term: u64,
+    pub leader_id: u64,
+    pub prev_log_index: u64,
+    pub prev_log_term: u64,
+    pub entries: Vec<LogEntry>,
+    pub leader_commit: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AppendEntriesResponse {
+    pub term: u64,
+    pub success: bool,
+    pub conflict_index: Option<u64>,
+    pub conflict_term: Option<u64>,
+}
+
+// Re-export other message types if needed or define locally
+pub use raft_kv_core::message::{Command, LogEntry, Snapshot};
