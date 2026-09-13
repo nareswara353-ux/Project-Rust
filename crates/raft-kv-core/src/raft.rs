@@ -47,11 +47,11 @@ impl<S: Storage + 'static> Raft<S> {
         self.storage
             .set_current_term(new_term)
             .await
-            .map_err(|e| RaftError::StorageError(e.to_string()))?;
+            .map_err(|e| RaftError::Storage(e.to_string()))?;
         self.storage
             .set_voted_for(Some(node_id))
             .await
-            .map_err(|e| RaftError::StorageError(e.to_string()))?;
+            .map_err(|e| RaftError::Storage(e.to_string()))?;
 
         info!("Node {} starting election for term {}", node_id, new_term);
 
@@ -156,11 +156,11 @@ impl<S: Storage + 'static> Raft<S> {
             self.storage
                 .set_current_term(state.current_term)
                 .await
-                .map_err(|e| RaftError::StorageError(e.to_string()))?;
+                .map_err(|e| RaftError::Storage(e.to_string()))?;
             self.storage
                 .set_voted_for(None)
                 .await
-                .map_err(|e| RaftError::StorageError(e.to_string()))?;
+                .map_err(|e| RaftError::Storage(e.to_string()))?;
         }
 
         state.reset_election_timeout();
@@ -220,11 +220,11 @@ impl<S: Storage + 'static> Raft<S> {
             self.storage
                 .set_current_term(state.current_term)
                 .await
-                .map_err(|e| RaftError::StorageError(e.to_string()))?;
+                .map_err(|e| RaftError::Storage(e.to_string()))?;
             self.storage
                 .set_voted_for(None)
                 .await
-                .map_err(|e| RaftError::StorageError(e.to_string()))?;
+                .map_err(|e| RaftError::Storage(e.to_string()))?;
         }
 
         let last_log_index = state.last_log_index();
@@ -244,7 +244,7 @@ impl<S: Storage + 'static> Raft<S> {
             self.storage
                 .set_voted_for(Some(req.candidate_id))
                 .await
-                .map_err(|e| RaftError::StorageError(e.to_string()))?;
+                .map_err(|e| RaftError::Storage(e.to_string()))?;
 
             state.reset_election_timeout();
 

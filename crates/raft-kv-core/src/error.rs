@@ -12,7 +12,9 @@ pub enum RaftError {
         current_term: u64,
     },
 
-    #[error("Log mismatch at index {index}: local term {local_term}, remote term {remote_term}")]
+    #[error(
+        "Log mismatch at index {index}: local term {local_term:?}, remote term {remote_term:?}"
+    )]
     LogMismatch {
         index: u64,
         local_term: Option<u64>,
