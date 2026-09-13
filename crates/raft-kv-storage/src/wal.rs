@@ -1,7 +1,7 @@
 use raft_kv_core::message::LogEntry;
 use raft_kv_core::RaftError;
 use std::fs::{self, File, OpenOptions};
-use std::io::{Read, Write, Seek, SeekFrom};
+use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::PathBuf;
 
 const MAGIC_NUMBER: u32 = 0x52414654; // "RAFT"
@@ -63,7 +63,8 @@ impl WriteAheadLog {
             let mut read_file = File::open(&path)
                 .map_err(|e| RaftError::Storage(format!("Open read error: {}", e)))?;
             let mut header = [0u8; HEADER_SIZE];
-            read_file.read_exact(&mut header)
+            read_file
+                .read_exact(&mut header)
                 .map_err(|e| RaftError::Storage(format!("Read header error: {}", e)))?;
 
             let magic = u32::from_be_bytes([header[0], header[1], header[2], header[3]]);
@@ -83,12 +84,14 @@ impl WriteAheadLog {
     }
 
     pub fn append(&mut self, entry: &LogEntry) -> Result<(), RaftError> {
-        let file = self.current_file.as_mut()
+        let file = self
+            .current_file
+            .as_mut()
             .ok_or_else(|| RaftError::Storage("WAL file not open".into()))?;
 
         let entry_bytes = bincode::serialize(entry)
             .map_err(|e| RaftError::Storage(format!("Serialization error: {}", e)))?;
-        
+
         let len = entry_bytes.len() as u32;
         let checksum = crc32fast::hash(&entry_bytes);
 
@@ -100,7 +103,7 @@ impl WriteAheadLog {
 
         file.write_all(&record)
             .map_err(|e| RaftError::Storage(format!("Write record error: {}", e)))?;
-        
+
         file.sync_all()
             .map_err(|e| RaftError::Storage(format!("Sync error: {}", e)))?;
 
@@ -111,15 +114,15 @@ impl WriteAheadLog {
         // Simplified: In a real impl, we'd seek to the specific offset for this index.
         // For now, we iterate from the beginning of the current segment (or a known start).
         // This is inefficient but works for small logs or as a placeholder.
-        
+
         let path = self.segment_path(0); // Start from first segment
         if !path.exists() {
             return Ok(None);
         }
 
-        let mut file = File::open(&path)
-            .map_err(|e| RaftError::Storage(format!("Open error: {}", e)))?;
-        
+        let mut file =
+            File::open(&path).map_err(|e| RaftError::Storage(format!("Open error: {}", e)))?;
+
         // Skip header
         file.seek(SeekFrom::Start(HEADER_SIZE as u64))
             .map_err(|e| RaftError::Storage(format!("Seek error: {}", e)))?;
@@ -128,7 +131,7 @@ impl WriteAheadLog {
         loop {
             let mut len_buf = [0u8; 4];
             match file.read_exact(&mut len_buf) {
-                Ok(_) => {},
+                Ok(_) => {}
                 Err(e) if e.kind() == std::io::ErrorKind::UnexpectedEof => break,
                 Err(e) => return Err(RaftError::Storage(format!("Read len error: {}", e))),
             }
@@ -145,7 +148,9 @@ impl WriteAheadLog {
 
             let calculated_checksum = crc32fast::hash(&data);
             if calculated_checksum != stored_checksum {
-                return Err(RaftError::Storage("Checksum mismatch: corrupted entry".into()));
+                return Err(RaftError::Storage(
+                    "Checksum mismatch: corrupted entry".into(),
+                ));
             }
 
             if current_idx == index {
@@ -170,8 +175,8 @@ impl WriteAheadLog {
 
         let mut entries_to_keep = Vec::new();
         {
-            let mut file = File::open(&path)
-                .map_err(|e| RaftError::Storage(format!("Open error: {}", e)))?;
+            let mut file =
+                File::open(&path).map_err(|e| RaftError::Storage(format!("Open error: {}", e)))?;
             file.seek(SeekFrom::Start(HEADER_SIZE as u64))
                 .map_err(|e| RaftError::Storage(format!("Seek error: {}", e)))?;
 
@@ -179,7 +184,7 @@ impl WriteAheadLog {
             loop {
                 let mut len_buf = [0u8; 4];
                 match file.read_exact(&mut len_buf) {
-                    Ok(_) => {},
+                    Ok(_) => {}
                     Err(e) if e.kind() == std::io::ErrorKind::UnexpectedEof => break,
                     Err(e) => return Err(RaftError::Storage(format!("Read len error: {}", e))),
                 }
@@ -216,7 +221,7 @@ impl WriteAheadLog {
             .truncate(true)
             .open(&path)
             .map_err(|e| RaftError::Storage(format!("Open truncate error: {}", e)))?;
-        
+
         let mut header = [0u8; HEADER_SIZE];
         header[0..4].copy_from_slice(&MAGIC_NUMBER.to_be_bytes());
         header[4..8].copy_from_slice(&VERSION.to_be_bytes());
@@ -226,22 +231,22 @@ impl WriteAheadLog {
         for data in entries_to_keep {
             let len = data.len() as u32;
             let checksum = crc32fast::hash(&data);
-            
+
             let mut record = Vec::with_capacity(8 + data.len());
             record.extend_from_slice(&len.to_be_bytes());
             record.extend_from_slice(&checksum.to_be_bytes());
             record.extend_from_slice(&data);
-            
+
             file.write_all(&record)
                 .map_err(|e| RaftError::Storage(format!("Write record error: {}", e)))?;
         }
-        
+
         file.sync_all()
             .map_err(|e| RaftError::Storage(format!("Sync error: {}", e)))?;
 
         Ok(())
     }
-    
+
     pub fn last_index(&self) -> u64 {
         // Placeholder: should track actual last index written
         self.current_index
