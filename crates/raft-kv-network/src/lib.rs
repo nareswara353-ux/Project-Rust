@@ -17,8 +17,8 @@ pub use server::RpcServer;
 pub use transport::{Transport, TransportPair};
 
 // Re-export message types
-pub use raft_kv_core::message::*;
 pub use raft_kv_core::error::RaftError;
+pub use raft_kv_core::message::*;
 
 // Re-export network-specific error if distinct (or use core's)
 // For now, we rely on RaftError::Network variant
