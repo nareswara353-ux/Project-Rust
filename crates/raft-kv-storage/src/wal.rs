@@ -39,7 +39,6 @@ impl WriteAheadLog {
         let mut file = OpenOptions::new()
             .create(true)
             .read(true)
-            .write(true)
             .append(true)
             .open(&path)
             .map_err(|e| RaftError::Storage(format!("Open segment error: {}", e)))?;
@@ -217,7 +216,6 @@ impl WriteAheadLog {
         // Rewrite file
         let mut file = OpenOptions::new()
             .create(true)
-            .write(true)
             .truncate(true)
             .open(&path)
             .map_err(|e| RaftError::Storage(format!("Open truncate error: {}", e)))?;
