@@ -7,12 +7,13 @@ license.workspace = true
 
 [dependencies]
 serde = { workspace = true }
+bytes = { workspace = true }
 thiserror = { workspace = true }
 tracing = { workspace = true }
-bytes = { workspace = true }
+tokio = { workspace = true, features = ["sync", "time", "macros"] }
 async-trait = { workspace = true }
 bincode = { workspace = true }
-tokio = { workspace = true }
 
 [dev-dependencies]
 tempfile = "3.9"
+tokio-test = "0.4"
