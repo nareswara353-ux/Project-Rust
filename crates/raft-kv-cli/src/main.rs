@@ -1,11 +1,11 @@
 use clap::Parser;
-use raft_kv_core::{NodeId, RaftConfig, Node};
-use raft_kv_storage::{WriteAheadLog, KeyValueStore, Snapshot};
+use raft_kv_core::{Node, NodeId, RaftConfig};
+use raft_kv_storage::{KeyValueStore, Snapshot, WriteAheadLog};
 use std::net::SocketAddr;
 use std::sync::Arc;
 use tokio::sync::RwLock;
-use tracing::{info, error};
-use tracing_subscriber::{EnvFilter, fmt};
+use tracing::{error, info};
+use tracing_subscriber::{fmt, EnvFilter};
 
 #[derive(Parser, Debug)]
 #[command(author, version, about = "Raft-KV Distributed Store")]
@@ -46,26 +46,26 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Initialize Storage Layer
     let wal_path = format!("{}/wal", args.data_dir);
     let snapshot_path = format!("{}/snapshots", args.data_dir);
-    
+
     info!("Initializing WAL at {}", wal_path);
     let mut wal = WriteAheadLog::new(&wal_path)?;
-    
+
     info!("Initializing KV Store");
     let store = KeyValueStore::new();
 
     // TODO: Load existing state from WAL/Snapshot here
     // For now, we start fresh or restore from snapshot if exists
-    
+
     // Initialize Raft Core
     // Note: We need a concrete implementation of Storage trait and NodeState
     // This is a simplified bootstrap. In a full impl, we'd wire up the Raft struct here.
-    
+
     info!("Node {} ready. Listening on {}", args.id, args.addr);
-    
+
     // Placeholder for actual Raft loop and RPC server
     // let config = RaftConfig::new(args.id);
     // let raft = Raft::new(config, Arc::new(wal), Arc::new(store));
-    
+
     // Simulate running
     tokio::signal::ctrl_c().await?;
     info!("Shutting down node {}...", args.id);
