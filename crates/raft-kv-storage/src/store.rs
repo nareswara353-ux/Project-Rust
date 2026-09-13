@@ -1,10 +1,11 @@
 use crate::snapshot::Snapshot;
-use raft_kv_core::{Command, Index};
+use raft_kv_core::{Command, Index, Term};
 use std::collections::HashMap;
 
 pub struct KeyValueStore {
     data: HashMap<String, String>,
     last_applied_index: Index,
+    last_applied_term: Term,
 }
 
 impl Default for KeyValueStore {
@@ -18,11 +19,14 @@ impl KeyValueStore {
         Self {
             data: HashMap::new(),
             last_applied_index: 0,
+            last_applied_term: 0,
         }
     }
 
-    pub fn apply(&mut self, index: Index, command: &Command) -> Option<String> {
+    pub fn apply(&mut self, index: Index, term: Term, command: &Command) -> Option<String> {
         self.last_applied_index = index;
+        self.last_applied_term = term;
+
         match command {
             Command::Noop => None,
             Command::Put { key, value } => {
@@ -53,6 +57,10 @@ impl KeyValueStore {
         self.last_applied_index
     }
 
+    pub fn last_applied_term(&self) -> Term {
+        self.last_applied_term
+    }
+
     pub fn create_snapshot(&self) -> Snapshot {
         let mut kv_data = Vec::new();
         for (key, value) in &self.data {
@@ -64,7 +72,8 @@ impl KeyValueStore {
             kv_data.extend(entry);
         }
 
-        Snapshot::new(0, 0)
+        // FIX: Gunakan index dan term yang benar, bukan (0,0)
+        Snapshot::new(self.last_applied_index, self.last_applied_term)
             .with_data(kv_data)
             .with_cluster_config(Vec::new())
     }
@@ -110,6 +119,10 @@ impl KeyValueStore {
 
             self.data.insert(key, value);
         }
+
+        // FIX: Restore metadata dengan benar
+        self.last_applied_index = snapshot.last_index;
+        self.last_applied_term = snapshot.last_term;
 
         Ok(())
     }
