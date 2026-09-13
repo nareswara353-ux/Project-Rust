@@ -7,7 +7,10 @@ pub enum RaftError {
     NotLeader,
 
     #[error("Request term {request_term} is stale, current term is {current_term}")]
-    StaleTerm { request_term: u64, current_term: u64 },
+    StaleTerm {
+        request_term: u64,
+        current_term: u64,
+    },
 
     #[error("Log mismatch at index {index}: local term {local_term}, remote term {remote_term}")]
     LogMismatch {
