@@ -1,9 +1,7 @@
 use clap::Parser;
-use raft_kv_core::{Node, NodeId, RaftConfig};
-use raft_kv_storage::{KeyValueStore, Snapshot, WriteAheadLog};
+use raft_kv_core::NodeId;
+use raft_kv_storage::{KeyValueStore, WriteAheadLog};
 use std::net::SocketAddr;
-use std::sync::Arc;
-use tokio::sync::RwLock;
 use tracing::{error, info};
 use tracing_subscriber::{fmt, EnvFilter};
 
@@ -45,13 +43,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Initialize Storage Layer
     let wal_path = format!("{}/wal", args.data_dir);
-    let snapshot_path = format!("{}/snapshots", args.data_dir);
+    let _snapshot_path = format!("{}/snapshots", args.data_dir);
 
     info!("Initializing WAL at {}", wal_path);
-    let mut wal = WriteAheadLog::new(&wal_path)?;
+    let _wal = WriteAheadLog::new(&wal_path)?;
 
     info!("Initializing KV Store");
-    let store = KeyValueStore::new();
+    let _store = KeyValueStore::new();
 
     // TODO: Load existing state from WAL/Snapshot here
     // For now, we start fresh or restore from snapshot if exists
