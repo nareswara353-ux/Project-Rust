@@ -1,7 +1,7 @@
 use crate::config::CliConfig;
-use crate::error::{CliError, Result};
+use crate::error::Result;
 use raft_kv_core::{NodeId, Node, RaftConfig};
-use raft_kv_storage::{WriteAheadLog, KeyValueStore};
+use raft_kv_storage::WriteAheadLog;
 use tracing::info;
 
 pub struct Runtime {
@@ -21,9 +21,9 @@ impl Runtime {
         let _snapshot_path = format!("{}/snapshots", self.config.data_dir);
         
         let _wal = WriteAheadLog::new(&wal_path)
-            .map_err(|e| CliError::StorageInit(e.to_string()))?;
+            .map_err(|e| crate::error::CliError::StorageInit(e.to_string()))?;
         
-        let _store = KeyValueStore::new();
+        let _store = raft_kv_storage::KeyValueStore::new();
 
         // 2. Prepare Peers
         let _peers: Vec<Node> = self.config.peers
