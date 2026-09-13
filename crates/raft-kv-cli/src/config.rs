@@ -1,82 +1,79 @@
 use clap::Parser;
 use raft_kv_core::NodeId;
 use std::net::SocketAddr;
-use std::path::PathBuf;
-use std::time::Duration;
+use thiserror::Error;
+
+#[derive(Error, Debug)]
+pub enum ConfigError {
+    #[error("Node address cannot be in the peer list")]
+    SelfInPeerList,
+    #[error("Invalid node ID: must be non-zero")]
+    InvalidNodeId,
+}
 
 #[derive(Parser, Debug)]
 #[command(author, version, about = "Raft-KV Distributed Store")]
-pub struct CliArgs {
+struct CliArgs {
     /// Unique ID for this node
     #[arg(short, long)]
-    pub id: NodeId,
+    id: NodeId,
 
     /// Address to bind the RPC server (e.g., 127.0.0.1:5001)
     #[arg(short, long, default_value = "127.0.0.1:5000")]
-    pub addr: SocketAddr,
+    addr: SocketAddr,
 
     /// List of peer addresses (e.g., --peers 127.0.0.1:5001 --peers 127.0.0.1:5002)
     #[arg(short, long)]
-    pub peers: Vec<SocketAddr>,
+    peers: Vec<SocketAddr>,
 
     /// Directory for persistent storage (WAL, Snapshots)
     #[arg(short, long, default_value = "./data")]
-    pub data_dir: String,
-
+    data_dir: String,
+    
     /// Election timeout minimum in milliseconds
     #[arg(long, default_value = "150")]
-    pub election_timeout_min_ms: u64,
+    election_timeout_min_ms: u64,
 
     /// Election timeout maximum in milliseconds
     #[arg(long, default_value = "300")]
-    pub election_timeout_max_ms: u64,
+    election_timeout_max_ms: u64,
 
     /// Heartbeat interval in milliseconds
     #[arg(long, default_value = "50")]
-    pub heartbeat_interval_ms: u64,
+    heartbeat_interval_ms: u64,
 }
 
 #[derive(Debug, Clone)]
-pub struct NodeConfig {
+pub struct CliConfig {
     pub id: NodeId,
     pub addr: SocketAddr,
     pub peers: Vec<SocketAddr>,
-    pub data_dir: PathBuf,
-    pub election_timeout_min: Duration,
-    pub election_timeout_max: Duration,
-    pub heartbeat_interval: Duration,
+    pub data_dir: String,
+    pub election_timeout_min_ms: u64,
+    pub election_timeout_max_ms: u64,
+    pub heartbeat_interval_ms: u64,
 }
 
-impl NodeConfig {
-    pub fn from_args(args: CliArgs) -> Result<Self, String> {
-        if args.peers.contains(&args.addr) {
-            return Err("Node address cannot be in the peer list".to_string());
-        }
+impl CliConfig {
+    pub fn from_args() -> Result<Self, ConfigError> {
+        let args = CliArgs::parse();
 
         if args.id == 0 {
-            return Err("Node ID must be greater than 0".to_string());
+            return Err(ConfigError::InvalidNodeId);
         }
 
-        if args.election_timeout_min_ms >= args.election_timeout_max_ms {
-            return Err("Election timeout min must be less than max".to_string());
+        if args.peers.contains(&args.addr) {
+            return Err(ConfigError::SelfInPeerList);
         }
 
         Ok(Self {
             id: args.id,
             addr: args.addr,
             peers: args.peers,
-            data_dir: PathBuf::from(args.data_dir),
-            election_timeout_min: Duration::from_millis(args.election_timeout_min_ms),
-            election_timeout_max: Duration::from_millis(args.election_timeout_max_ms),
-            heartbeat_interval: Duration::from_millis(args.heartbeat_interval_ms),
+            data_dir: args.data_dir,
+            election_timeout_min_ms: args.election_timeout_min_ms,
+            election_timeout_max_ms: args.election_timeout_max_ms,
+            heartbeat_interval_ms: args.heartbeat_interval_ms,
         })
-    }
-
-    pub fn wal_path(&self) -> PathBuf {
-        self.data_dir.join("wal")
-    }
-
-    pub fn snapshot_path(&self) -> PathBuf {
-        self.data_dir.join("snapshots")
     }
 }
