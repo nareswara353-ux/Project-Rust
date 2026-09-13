@@ -36,7 +36,7 @@ impl WriteAheadLog {
 
     fn open_or_create_segment(&mut self, index: u64) -> Result<(), RaftError> {
         let path = self.segment_path(index);
-        let file = OpenOptions::new()
+        let mut file = OpenOptions::new()
             .create(true)
             .read(true)
             .write(true)
