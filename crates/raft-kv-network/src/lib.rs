@@ -1,7 +1,5 @@
 //! Network layer for Raft-KV consensus communication.
 
-use bytes::Bytes;
-use raft_kv_core::NodeId;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
