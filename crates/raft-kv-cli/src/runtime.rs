@@ -2,9 +2,7 @@ use crate::config::CliConfig;
 use crate::error::{CliError, Result};
 use raft_kv_core::{NodeId, Node, RaftConfig};
 use raft_kv_storage::{WriteAheadLog, KeyValueStore};
-use std::sync::Arc;
-use tokio::sync::RwLock;
-use tracing::{info, error};
+use tracing::info;
 
 pub struct Runtime {
     config: CliConfig,
@@ -20,22 +18,22 @@ impl Runtime {
 
         // 1. Initialize Storage
         let wal_path = format!("{}/wal", self.config.data_dir);
-        let snapshot_path = format!("{}/snapshots", self.config.data_dir);
+        let _snapshot_path = format!("{}/snapshots", self.config.data_dir);
         
-        let wal = WriteAheadLog::new(&wal_path)
+        let _wal = WriteAheadLog::new(&wal_path)
             .map_err(|e| CliError::StorageInit(e.to_string()))?;
         
-        let store = KeyValueStore::new();
+        let _store = KeyValueStore::new();
 
         // 2. Prepare Peers
-        let peers: Vec<Node> = self.config.peers
+        let _peers: Vec<Node> = self.config.peers
             .iter()
             .enumerate()
             .map(|(i, addr)| Node::new(i as NodeId, addr.to_string()))
             .collect();
 
         // 3. Initialize Raft Config
-        let raft_config = RaftConfig::new(self.config.id)
+        let _raft_config = RaftConfig::new(self.config.id)
             .with_timeouts(
                 self.config.election_timeout_min_ms,
                 self.config.election_timeout_max_ms,
