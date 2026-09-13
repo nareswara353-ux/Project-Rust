@@ -7,14 +7,13 @@ license.workspace = true
 
 [dependencies]
 raft-kv-core = { path = "../raft-kv-core" }
-raft-kv-storage = { path = "../raft-kv-storage" }
+tokio = { workspace = true, features = ["net", "io-util", "sync", "time", "macros"] }
 serde = { workspace = true }
-serde_json = { workspace = true }
-bytes = { version = "1.5", features = ["serde"] }
-tokio = { workspace = true }
-thiserror = { workspace = true }
 bincode = { workspace = true }
+bytes = { workspace = true }
+thiserror = { workspace = true }
 tracing = { workspace = true }
 
 [dev-dependencies]
 tokio-test = "0.4"
+tempfile = "3.9"
