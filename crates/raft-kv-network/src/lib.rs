@@ -5,18 +5,27 @@ pub mod codec;
 pub mod server;
 pub mod transport;
 
-// Re-export main types
-pub use client::RpcClient;
-pub use server::RpcServer;
-pub use transport::{Transport, TransportPair};
-
-// Re-export message types from core
-pub use raft_kv_core::message::*;
-
-// Re-export error types
+// Re-export core types needed across the network module
+use bytes::Bytes;
 pub use raft_kv_core::error::RaftError;
+pub use raft_kv_core::message::{
+    AppendEntriesRequest, AppendEntriesResponse, Command, InstallSnapshotRequest,
+    InstallSnapshotResponse, LogEntry, RequestVoteRequest, RequestVoteResponse, Role,
+};
+use serde::{Deserialize, Serialize};
 
-// Define local NetworkError if needed, or rely on RaftError::Network
+// Define RpcMessage locally or re-export if defined in core
+// For this architecture, let's define it here as the network envelope
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum RpcMessage {
+    AppendEntriesRequest(AppendEntriesRequest),
+    AppendEntriesResponse(AppendEntriesResponse),
+    RequestVoteRequest(RequestVoteRequest),
+    RequestVoteResponse(RequestVoteResponse),
+    InstallSnapshotRequest(InstallSnapshotRequest),
+    InstallSnapshotResponse(InstallSnapshotResponse),
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum NetworkError {
     #[error("Serialization error: {0}")]
@@ -28,3 +37,7 @@ pub enum NetworkError {
     #[error("Timeout error")]
     Timeout,
 }
+
+pub use client::RpcClient;
+pub use server::RpcServer;
+pub use transport::{Transport, TransportPair};
