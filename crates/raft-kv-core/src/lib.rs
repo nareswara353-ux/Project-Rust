@@ -12,3 +12,6 @@ pub use message::{Command, LogEntry};
 pub use node::{Node, NodeId, Role};
 pub use raft::Raft;
 pub use storage::Storage;
+
+pub type Index = u64;
+pub type Term = u64;

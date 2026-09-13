@@ -78,13 +78,15 @@ impl KeyValueStore {
     }
 
     pub fn restore_from_snapshot(&mut self, snapshot: &Snapshot) -> Result<(), String> {
-        // Validasi metadata dasar
-        if snapshot.last_included_term == 0 && snapshot.last_included_index > 0 {
+        let last_index = snapshot.last_included_index();
+        let last_term = snapshot.last_included_term();
+
+        if last_term == 0 && last_index > 0 {
             return Err("Invalid snapshot: term is zero but index is not".into());
         }
 
         self.data.clear();
-        let bytes = &snapshot.data;
+        let bytes = snapshot.data();
         let mut offset = 0;
 
         while offset + 8 <= bytes.len() {
@@ -124,8 +126,8 @@ impl KeyValueStore {
             self.data.insert(key, value);
         }
 
-        self.last_applied_index = snapshot.last_included_index;
-        self.last_applied_term = snapshot.last_included_term;
+        self.last_applied_index = last_index;
+        self.last_applied_term = last_term;
 
         Ok(())
     }

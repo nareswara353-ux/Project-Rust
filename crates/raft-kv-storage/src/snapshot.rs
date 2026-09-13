@@ -34,18 +34,45 @@ impl Snapshot {
         self
     }
 
+    pub fn last_included_index(&self) -> Index {
+        self.last_index
+    }
+
+    pub fn last_included_term(&self) -> Term {
+        self.last_term
+    }
+
+    pub fn data(&self) -> &[u8] {
+        &self.data
+    }
+
+    pub fn cluster_config(&self) -> &[NodeId] {
+        &self.cluster_config
+    }
+
     pub fn save(&self, snapshot_dir: &str) -> Result<(), std::io::Error> {
         let path = PathBuf::from(snapshot_dir).join(SNAPSHOT_FILE);
         if let Some(parent) = path.parent() {
             fs::create_dir_all(parent)?;
         }
 
-        let file = File::create(&path)?;
-        let mut writer = BufWriter::new(file);
-        let bytes = bincode::serialize(self)
-            .map_err(|e| std::io::Error::other(format!("Serialize error: {}", e)))?;
-        writer.write_all(&bytes)?;
-        writer.flush()?;
+        let tmp_path = path.with_extension("tmp");
+
+        {
+            let file = File::create(&tmp_path)?;
+            let mut writer = BufWriter::new(file);
+            let bytes = bincode::serialize(self).map_err(|e| {
+                std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    format!("Serialize error: {}", e),
+                )
+            })?;
+            writer.write_all(&bytes)?;
+            writer.flush()?;
+            writer.get_ref().sync_all()?;
+        }
+
+        fs::rename(&tmp_path, &path)?;
         Ok(())
     }
 
@@ -60,8 +87,12 @@ impl Snapshot {
         let mut buffer = Vec::new();
         reader.read_to_end(&mut buffer)?;
 
-        let snapshot: Self = bincode::deserialize(&buffer)
-            .map_err(|e| std::io::Error::other(format!("Deserialize error: {}", e)))?;
+        let snapshot: Self = bincode::deserialize(&buffer).map_err(|e| {
+            std::io::Error::new(
+                std::io::ErrorKind::Other,
+                format!("Deserialize error: {}", e),
+            )
+        })?;
         Ok(Some(snapshot))
     }
 
