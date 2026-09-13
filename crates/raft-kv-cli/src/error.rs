@@ -18,8 +18,8 @@ pub enum CliError {
     #[error("IO error: {0}")]
     Io(#[from] std::io::Error),
 
-    #[error("Runtime error: {0}")]
-    Runtime(String),
+    #[error("Internal error: {0}")]
+    Internal(String),
 }
 
 pub type Result<T> = std::result::Result<T, CliError>;
