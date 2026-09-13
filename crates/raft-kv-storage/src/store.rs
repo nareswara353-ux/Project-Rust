@@ -72,13 +72,17 @@ impl KeyValueStore {
             kv_data.extend(entry);
         }
 
-        // FIX: Gunakan index dan term yang benar, bukan (0,0)
         Snapshot::new(self.last_applied_index, self.last_applied_term)
             .with_data(kv_data)
             .with_cluster_config(Vec::new())
     }
 
     pub fn restore_from_snapshot(&mut self, snapshot: &Snapshot) -> Result<(), String> {
+        // Validasi metadata dasar
+        if snapshot.last_included_term == 0 && snapshot.last_included_index > 0 {
+            return Err("Invalid snapshot: term is zero but index is not".into());
+        }
+
         self.data.clear();
         let bytes = &snapshot.data;
         let mut offset = 0;
@@ -120,9 +124,8 @@ impl KeyValueStore {
             self.data.insert(key, value);
         }
 
-        // FIX: Restore metadata dengan benar
-        self.last_applied_index = snapshot.last_index;
-        self.last_applied_term = snapshot.last_term;
+        self.last_applied_index = snapshot.last_included_index;
+        self.last_applied_term = snapshot.last_included_term;
 
         Ok(())
     }
