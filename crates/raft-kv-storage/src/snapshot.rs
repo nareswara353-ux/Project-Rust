@@ -62,10 +62,7 @@ impl Snapshot {
             let file = File::create(&tmp_path)?;
             let mut writer = BufWriter::new(file);
             let bytes = bincode::serialize(self).map_err(|e| {
-                std::io::Error::new(
-                    std::io::ErrorKind::Other,
-                    format!("Serialize error: {}", e),
-                )
+                std::io::Error::new(std::io::ErrorKind::Other, format!("Serialize error: {}", e))
             })?;
             writer.write_all(&bytes)?;
             writer.flush()?;

@@ -105,9 +105,7 @@ impl WriteAheadLog {
             match reader.read_exact(&mut len_bytes) {
                 Ok(()) => {}
                 Err(ref e) if e.kind() == std::io::ErrorKind::UnexpectedEof => break,
-                Err(e) => {
-                    return Err(RaftError::StorageError(format!("Read length error: {}", e)))
-                }
+                Err(e) => return Err(RaftError::StorageError(format!("Read length error: {}", e))),
             }
 
             let record_len = u32::from_be_bytes(len_bytes) as usize;
