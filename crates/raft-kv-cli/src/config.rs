@@ -29,7 +29,7 @@ struct CliArgs {
     /// Directory for persistent storage (WAL, Snapshots)
     #[arg(short, long, default_value = "./data")]
     data_dir: String,
-    
+
     /// Election timeout minimum in milliseconds
     #[arg(long, default_value = "150")]
     election_timeout_min_ms: u64,
