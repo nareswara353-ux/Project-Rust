@@ -1,3 +1,4 @@
+use crate::NetworkError;
 use crate::RpcMessage;
 use raft_kv_core::NodeId;
 use std::collections::HashMap;

@@ -1,3 +1,4 @@
+use crate::NetworkError;
 use crate::RpcMessage;
 use bytes::Bytes;
 

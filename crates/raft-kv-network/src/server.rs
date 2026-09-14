@@ -1,4 +1,5 @@
 use crate::codec::decode_message;
+use crate::NetworkError;
 use crate::RpcMessage;
 use raft_kv_core::NodeId;
 use std::net::SocketAddr;

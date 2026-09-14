@@ -1,7 +1,4 @@
-use raft_kv_core::message::{
-    AppendEntriesRequest, AppendEntriesResponse, InstallSnapshotRequest, InstallSnapshotResponse,
-    RequestVoteRequest, RequestVoteResponse,
-};
+use bytes::Bytes;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
@@ -17,13 +14,15 @@ pub enum NetworkError {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum RpcMessage {
-    RequestVote(RequestVoteRequest),
-    RequestVoteResponse(RequestVoteResponse),
-    AppendEntries(AppendEntriesRequest),
-    AppendEntriesResponse(AppendEntriesResponse),
-    InstallSnapshot(InstallSnapshotRequest),
-    InstallSnapshotResponse(InstallSnapshotResponse),
+    RequestVote(raft_kv_core::message::RequestVoteRequest),
+    RequestVoteResponse(raft_kv_core::message::RequestVoteResponse),
+    AppendEntries(raft_kv_core::message::AppendEntriesRequest),
+    AppendEntriesResponse(raft_kv_core::message::AppendEntriesResponse),
+    InstallSnapshot(raft_kv_core::message::InstallSnapshotRequest),
+    InstallSnapshotResponse(raft_kv_core::message::InstallSnapshotResponse),
 }
+
+pub use raft_kv_core::message::*;
 
 pub mod client;
 pub mod codec;
@@ -31,6 +30,5 @@ pub mod server;
 pub mod transport;
 
 pub use client::RpcClient;
-pub use raft_kv_core::message::*;
 pub use server::RpcServer;
 pub use transport::{Transport, TransportPair};
