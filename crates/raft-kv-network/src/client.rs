@@ -1,90 +1,104 @@
-use crate::codec::encode_message;
 use crate::{NetworkError, RpcMessage};
-use std::net::SocketAddr;
+use raft_kv_core::message::*;
+use raft_kv_core::RaftError;
 use std::time::Duration;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 use tokio::time::timeout;
-use tracing::info;
 
 pub struct RpcClient {
-    connect_timeout: Duration,
-    read_timeout: Duration,
-}
-
-impl Default for RpcClient {
-    fn default() -> Self {
-        Self::new()
-    }
+    timeout_duration: Duration,
 }
 
 impl RpcClient {
-    pub fn new() -> Self {
+    pub fn new(timeout_ms: u64) -> Self {
         Self {
-            connect_timeout: Duration::from_secs(5),
-            read_timeout: Duration::from_secs(10),
+            timeout_duration: Duration::from_millis(timeout_ms),
         }
     }
 
-    pub fn with_timeouts(mut self, connect_ms: u64, read_ms: u64) -> Self {
-        self.connect_timeout = Duration::from_millis(connect_ms);
-        self.read_timeout = Duration::from_millis(read_ms);
-        self
+    pub async fn send_request_vote(
+        &self,
+        addr: &str,
+        req: RequestVoteRequest,
+    ) -> Result<RequestVoteResponse, RaftError> {
+        let msg = RpcMessage::RequestVote(req);
+        let resp_msg = self.send_message(addr, msg).await?;
+
+        match resp_msg {
+            RpcMessage::RequestVoteResponse(resp) => Ok(resp),
+            _ => Err(RaftError::Network("Unexpected response type".into())),
+        }
     }
 
-    pub async fn send(
+    pub async fn send_append_entries(
         &self,
-        addr: SocketAddr,
-        msg: RpcMessage,
-    ) -> Result<RpcMessage, NetworkError> {
-        let stream = timeout(self.connect_timeout, TcpStream::connect(addr))
+        addr: &str,
+        req: AppendEntriesRequest,
+    ) -> Result<AppendEntriesResponse, RaftError> {
+        let msg = RpcMessage::AppendEntries(req);
+        let resp_msg = self.send_message(addr, msg).await?;
+
+        match resp_msg {
+            RpcMessage::AppendEntriesResponse(resp) => Ok(resp),
+            _ => Err(RaftError::Network("Unexpected response type".into())),
+        }
+    }
+
+    pub async fn send_install_snapshot(
+        &self,
+        addr: &str,
+        req: InstallSnapshotRequest,
+    ) -> Result<InstallSnapshotResponse, RaftError> {
+        let msg = RpcMessage::InstallSnapshot(req);
+        let resp_msg = self.send_message(addr, msg).await?;
+
+        match resp_msg {
+            RpcMessage::InstallSnapshotResponse(resp) => Ok(resp),
+            _ => Err(RaftError::Network("Unexpected response type".into())),
+        }
+    }
+
+    async fn send_message(&self, addr: &str, msg: RpcMessage) -> Result<RpcMessage, RaftError> {
+        let stream = timeout(self.timeout_duration, TcpStream::connect(addr))
             .await
-            .map_err(|_| NetworkError::Timeout)?
-            .map_err(NetworkError::Io)?;
+            .map_err(|_| RaftError::Network("Connection timeout".into()))?
+            .map_err(|e| RaftError::Network(format!("Connection failed: {}", e)))?;
 
         let (mut reader, mut writer) = stream.into_split();
 
-        let encoded = encode_message(&msg)?;
-        writer.write_all(&encoded).await?;
-        writer.flush().await?;
+        let data = bincode::serialize(&msg).map_err(|e| {
+            RaftError::Network(format!("Serialize request error: {}", e))
+        })?;
 
-        info!("Sent message to {}: {:?}", addr, msg);
+        let len = data.len() as u32;
+        writer.write_all(&len.to_be_bytes()).await.map_err(|e| {
+            RaftError::Network(format!("Write length error: {}", e))
+        })?;
 
-        let mut buf = vec![0u8; 4096];
-        let n = timeout(self.read_timeout, reader.read(&mut buf))
-            .await
-            .map_err(|_| NetworkError::Timeout)?
-            .map_err(NetworkError::Io)?;
+        writer.write_all(&data).await.map_err(|e| {
+            RaftError::Network(format!("Write data error: {}", e))
+        })?;
 
-        if n == 0 {
-            return Err(NetworkError::Connection("Connection closed by peer".into()));
-        }
+        writer.flush().await.map_err(|e| {
+            RaftError::Network(format!("Flush error: {}", e))
+        })?;
 
-        use crate::codec::decode_message;
-        let response = decode_message(&buf[..n])?;
-        info!("Received response from {}: {:?}", addr, response);
+        let mut len_buf = [0u8; 4];
+        reader.read_exact(&mut len_buf).await.map_err(|e| {
+            RaftError::Network(format!("Read length error: {}", e))
+        })?;
+        let resp_len = u32::from_be_bytes(len_buf) as usize;
 
-        Ok(response)
-    }
+        let mut resp_data = vec![0u8; resp_len];
+        reader.read_exact(&mut resp_data).await.map_err(|e| {
+            RaftError::Network(format!("Read data error: {}", e))
+        })?;
 
-    pub async fn send_one_way(
-        &self,
-        addr: SocketAddr,
-        msg: RpcMessage,
-    ) -> Result<(), NetworkError> {
-        let stream = timeout(self.connect_timeout, TcpStream::connect(addr))
-            .await
-            .map_err(|_| NetworkError::Timeout)?
-            .map_err(NetworkError::Io)?;
+        let resp_msg: RpcMessage = bincode::deserialize(&resp_data).map_err(|e| {
+            RaftError::Network(format!("Deserialize response error: {}", e))
+        })?;
 
-        let (_, mut writer) = stream.into_split();
-
-        let encoded = encode_message(&msg)?;
-        writer.write_all(&encoded).await?;
-        writer.flush().await?;
-
-        info!("Sent one-way message to {}: {:?}", addr, msg);
-
-        Ok(())
+        Ok(resp_msg)
     }
 }
