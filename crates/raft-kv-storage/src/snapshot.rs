@@ -1,94 +1,116 @@
-use raft_kv_core::{Index, NodeId, Term};
-use serde::{Deserialize, Serialize};
+use raft_kv_core::message::Snapshot;
+use raft_kv_core::RaftError;
 use std::fs::{self, File};
-use std::io::{BufReader, BufWriter, Read, Write};
+use std::io::{Read, Write};
 use std::path::PathBuf;
 
-const SNAPSHOT_FILE: &str = "snapshot.bin";
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Snapshot {
-    pub last_index: Index,
-    pub last_term: Term,
-    pub cluster_config: Vec<NodeId>,
-    pub data: Vec<u8>,
+pub struct SnapshotManager {
+    dir: PathBuf,
 }
 
-impl Snapshot {
-    pub fn new(last_index: Index, last_term: Term) -> Self {
-        Self {
-            last_index,
-            last_term,
-            cluster_config: Vec::new(),
-            data: Vec::new(),
-        }
+impl SnapshotManager {
+    pub fn new(dir: &str) -> Result<Self, RaftError> {
+        let path = PathBuf::from(dir);
+        fs::create_dir_all(&path).map_err(|e| {
+            RaftError::Storage(format!("Create snapshot dir error: {}", e))
+        })?;
+        Ok(Self { dir: path })
     }
 
-    pub fn with_data(mut self, data: Vec<u8>) -> Self {
-        self.data = data;
-        self
-    }
+    pub fn save(&self, snapshot: &Snapshot) -> Result<(), RaftError> {
+        let filename = format!(
+            "snapshot_{}_{}.bin",
+            snapshot.last_included_index, snapshot.last_included_term
+        );
+        let path = self.dir.join(filename);
 
-    pub fn with_cluster_config(mut self, nodes: Vec<NodeId>) -> Self {
-        self.cluster_config = nodes;
-        self
-    }
+        let data = bincode::serialize(snapshot).map_err(|e| {
+            RaftError::Snapshot(format!("Serialize snapshot error: {}", e))
+        })?;
 
-    pub fn last_included_index(&self) -> Index {
-        self.last_index
-    }
+        let mut file = File::create(&path).map_err(|e| {
+            RaftError::Snapshot(format!("Create snapshot file error: {}", e))
+        })?;
 
-    pub fn last_included_term(&self) -> Term {
-        self.last_term
-    }
+        file.write_all(&data).map_err(|e| {
+            RaftError::Snapshot(format!("Write snapshot error: {}", e))
+        })?;
 
-    pub fn data(&self) -> &[u8] {
-        &self.data
-    }
+        file.sync_all().map_err(|e| {
+            RaftError::Snapshot(format!("Sync snapshot error: {}", e))
+        })?;
 
-    pub fn cluster_config(&self) -> &[NodeId] {
-        &self.cluster_config
-    }
-
-    pub fn save(&self, snapshot_dir: &str) -> Result<(), std::io::Error> {
-        let path = PathBuf::from(snapshot_dir).join(SNAPSHOT_FILE);
-        if let Some(parent) = path.parent() {
-            fs::create_dir_all(parent)?;
-        }
-
-        let tmp_path = path.with_extension("tmp");
-
-        {
-            let file = File::create(&tmp_path)?;
-            let mut writer = BufWriter::new(file);
-            let bytes = bincode::serialize(self)
-                .map_err(|e| std::io::Error::other(format!("Serialize error: {}", e)))?;
-            writer.write_all(&bytes)?;
-            writer.flush()?;
-            writer.get_ref().sync_all()?;
-        }
-
-        fs::rename(&tmp_path, &path)?;
         Ok(())
     }
 
-    pub fn load(snapshot_dir: &str) -> Result<Option<Self>, std::io::Error> {
-        let path = PathBuf::from(snapshot_dir).join(SNAPSHOT_FILE);
-        if !path.exists() {
-            return Ok(None);
+    pub fn load_latest(&self) -> Result<Option<Snapshot>, RaftError> {
+        let entries = fs::read_dir(&self.dir).map_err(|e| {
+            RaftError::Snapshot(format!("Read snapshot dir error: {}", e))
+        })?;
+
+        let mut latest: Option<Snapshot> = None;
+
+        for entry in entries {
+            let entry = entry.map_err(|e| {
+                RaftError::Snapshot(format!("Read snapshot entry error: {}", e))
+            })?;
+
+            let filename = entry.file_name();
+            let name_str = filename.to_string_lossy();
+
+            if name_str.starts_with("snapshot_") && name_str.ends_with(".bin") {
+                let path = entry.path();
+                let mut file = File::open(&path).map_err(|e| {
+                    RaftError::Snapshot(format!("Open snapshot file error: {}", e))
+                })?;
+
+                let mut data = Vec::new();
+                file.read_to_end(&mut data).map_err(|e| {
+                    RaftError::Snapshot(format!("Read snapshot data error: {}", e))
+                })?;
+
+                let snapshot: Snapshot = bincode::deserialize(&data).map_err(|e| {
+                    RaftError::Snapshot(format!("Deserialize snapshot error: {}", e))
+                })?;
+
+                if latest.is_none()
+                    || snapshot.last_included_index > latest.as_ref().unwrap().last_included_index
+                {
+                    latest = Some(snapshot);
+                }
+            }
         }
 
-        let file = File::open(&path)?;
-        let mut reader = BufReader::new(file);
-        let mut buffer = Vec::new();
-        reader.read_to_end(&mut buffer)?;
-
-        let snapshot: Self = bincode::deserialize(&buffer)
-            .map_err(|e| std::io::Error::other(format!("Deserialize error: {}", e)))?;
-        Ok(Some(snapshot))
+        Ok(latest)
     }
 
-    pub fn is_empty(&self) -> bool {
-        self.last_index == 0
+    pub fn delete_older_than(&self, index: u64) -> Result<(), RaftError> {
+        let entries = fs::read_dir(&self.dir).map_err(|e| {
+            RaftError::Snapshot(format!("Read snapshot dir error: {}", e))
+        })?;
+
+        for entry in entries {
+            let entry = entry.map_err(|e| {
+                RaftError::Snapshot(format!("Read snapshot entry error: {}", e))
+            })?;
+
+            let filename = entry.file_name();
+            let name_str = filename.to_string_lossy();
+
+            if name_str.starts_with("snapshot_") && name_str.ends_with(".bin") {
+                let parts: Vec<&str> = name_str.split('_').collect();
+                if parts.len() >= 3 {
+                    if let Ok(idx) = parts[1].parse::<u64>() {
+                        if idx < index {
+                            fs::remove_file(entry.path()).map_err(|e| {
+                                RaftError::Snapshot(format!("Delete old snapshot error: {}", e))
+                            })?;
+                        }
+                    }
+                }
+            }
+        }
+
+        Ok(())
     }
 }
