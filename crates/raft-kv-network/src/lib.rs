@@ -1,21 +1,18 @@
-use bytes::Bytes;
 use raft_kv_core::message::{
-    AppendEntriesRequest, AppendEntriesResponse, Command, InstallSnapshotRequest,
-    InstallSnapshotResponse, LogEntry, RequestVoteRequest, RequestVoteResponse, Snapshot,
+    AppendEntriesRequest, AppendEntriesResponse, InstallSnapshotRequest, InstallSnapshotResponse,
+    RequestVoteRequest, RequestVoteResponse,
 };
-use raft_kv_core::NodeId;
+use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 #[derive(Error, Debug)]
 pub enum NetworkError {
-    #[error("Connection failed: {0}")]
+    #[error("Connection error: {0}")]
     Connection(String),
-    #[error("Timeout")]
-    Timeout,
     #[error("Serialization error: {0}")]
     Serialization(String),
-    #[error("IO error: {0}")]
-    Io(#[from] std::io::Error),
+    #[error("Timeout")]
+    Timeout,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -34,8 +31,6 @@ pub mod server;
 pub mod transport;
 
 pub use client::RpcClient;
+pub use raft_kv_core::message::*;
 pub use server::RpcServer;
 pub use transport::{Transport, TransportPair};
-
-pub use raft_kv_core::error::RaftError;
-pub use raft_kv_core::message::{Command, LogEntry, Snapshot};
