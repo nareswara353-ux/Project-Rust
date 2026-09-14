@@ -1,4 +1,3 @@
-use bytes::Bytes;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
@@ -32,3 +31,9 @@ pub mod transport;
 pub use client::RpcClient;
 pub use server::RpcServer;
 pub use transport::{Transport, TransportPair};
+
+impl From<std::io::Error> for NetworkError {
+    fn from(err: std::io::Error) -> Self {
+        NetworkError::Io(err.to_string())
+    }
+}
