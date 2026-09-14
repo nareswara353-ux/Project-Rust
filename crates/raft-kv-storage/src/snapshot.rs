@@ -11,9 +11,8 @@ pub struct SnapshotManager {
 impl SnapshotManager {
     pub fn new(dir: &str) -> Result<Self, RaftError> {
         let path = PathBuf::from(dir);
-        fs::create_dir_all(&path).map_err(|e| {
-            RaftError::Storage(format!("Create snapshot dir error: {}", e))
-        })?;
+        fs::create_dir_all(&path)
+            .map_err(|e| RaftError::Storage(format!("Create snapshot dir error: {}", e)))?;
         Ok(Self { dir: path })
     }
 
@@ -24,50 +23,42 @@ impl SnapshotManager {
         );
         let path = self.dir.join(filename);
 
-        let data = bincode::serialize(snapshot).map_err(|e| {
-            RaftError::Snapshot(format!("Serialize snapshot error: {}", e))
-        })?;
+        let data = bincode::serialize(snapshot)
+            .map_err(|e| RaftError::Snapshot(format!("Serialize snapshot error: {}", e)))?;
 
-        let mut file = File::create(&path).map_err(|e| {
-            RaftError::Snapshot(format!("Create snapshot file error: {}", e))
-        })?;
+        let mut file = File::create(&path)
+            .map_err(|e| RaftError::Snapshot(format!("Create snapshot file error: {}", e)))?;
 
-        file.write_all(&data).map_err(|e| {
-            RaftError::Snapshot(format!("Write snapshot error: {}", e))
-        })?;
+        file.write_all(&data)
+            .map_err(|e| RaftError::Snapshot(format!("Write snapshot error: {}", e)))?;
 
-        file.sync_all().map_err(|e| {
-            RaftError::Snapshot(format!("Sync snapshot error: {}", e))
-        })?;
+        file.sync_all()
+            .map_err(|e| RaftError::Snapshot(format!("Sync snapshot error: {}", e)))?;
 
         Ok(())
     }
 
     pub fn load_latest(&self) -> Result<Option<Snapshot>, RaftError> {
-        let entries = fs::read_dir(&self.dir).map_err(|e| {
-            RaftError::Snapshot(format!("Read snapshot dir error: {}", e))
-        })?;
+        let entries = fs::read_dir(&self.dir)
+            .map_err(|e| RaftError::Snapshot(format!("Read snapshot dir error: {}", e)))?;
 
         let mut latest: Option<Snapshot> = None;
 
         for entry in entries {
-            let entry = entry.map_err(|e| {
-                RaftError::Snapshot(format!("Read snapshot entry error: {}", e))
-            })?;
+            let entry = entry
+                .map_err(|e| RaftError::Snapshot(format!("Read snapshot entry error: {}", e)))?;
 
             let filename = entry.file_name();
             let name_str = filename.to_string_lossy();
 
             if name_str.starts_with("snapshot_") && name_str.ends_with(".bin") {
                 let path = entry.path();
-                let mut file = File::open(&path).map_err(|e| {
-                    RaftError::Snapshot(format!("Open snapshot file error: {}", e))
-                })?;
+                let mut file = File::open(&path)
+                    .map_err(|e| RaftError::Snapshot(format!("Open snapshot file error: {}", e)))?;
 
                 let mut data = Vec::new();
-                file.read_to_end(&mut data).map_err(|e| {
-                    RaftError::Snapshot(format!("Read snapshot data error: {}", e))
-                })?;
+                file.read_to_end(&mut data)
+                    .map_err(|e| RaftError::Snapshot(format!("Read snapshot data error: {}", e)))?;
 
                 let snapshot: Snapshot = bincode::deserialize(&data).map_err(|e| {
                     RaftError::Snapshot(format!("Deserialize snapshot error: {}", e))
@@ -85,14 +76,12 @@ impl SnapshotManager {
     }
 
     pub fn delete_older_than(&self, index: u64) -> Result<(), RaftError> {
-        let entries = fs::read_dir(&self.dir).map_err(|e| {
-            RaftError::Snapshot(format!("Read snapshot dir error: {}", e))
-        })?;
+        let entries = fs::read_dir(&self.dir)
+            .map_err(|e| RaftError::Snapshot(format!("Read snapshot dir error: {}", e)))?;
 
         for entry in entries {
-            let entry = entry.map_err(|e| {
-                RaftError::Snapshot(format!("Read snapshot entry error: {}", e))
-            })?;
+            let entry = entry
+                .map_err(|e| RaftError::Snapshot(format!("Read snapshot entry error: {}", e)))?;
 
             let filename = entry.file_name();
             let name_str = filename.to_string_lossy();
