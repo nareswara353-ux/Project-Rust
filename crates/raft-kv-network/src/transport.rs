@@ -1,85 +1,95 @@
-use crate::NetworkError;
-use crate::RpcMessage;
+use crate::{NetworkError, RpcMessage};
 use raft_kv_core::NodeId;
 use std::collections::HashMap;
 use std::sync::Arc;
-use tokio::sync::{mpsc, Mutex};
+use tokio::sync::mpsc;
 
-type Tx = mpsc::Sender<RpcMessage>;
-type Rx = mpsc::Receiver<RpcMessage>;
-
-pub struct Transport {
-    nodes: Arc<Mutex<HashMap<NodeId, Tx>>>,
+pub trait Transport: Send + Sync {
+    fn send(&self, target_id: NodeId, msg: RpcMessage) -> impl futures::future::Future<Output = Result<(), NetworkError>> + Send;
+    fn broadcast(&self, exclude_id: NodeId, msg: RpcMessage) -> impl futures::future::Future<Output = Result<(), NetworkError>> + Send;
 }
 
-impl Transport {
-    pub fn new() -> Self {
-        Self {
-            nodes: Arc::new(Mutex::new(HashMap::new())),
-        }
+pub struct TcpTransport {
+    peers: HashMap<NodeId, String>,
+}
+
+impl TcpTransport {
+    pub fn new(peers: HashMap<NodeId, String>) -> Self {
+        Self { peers }
+    }
+}
+
+impl Transport for TcpTransport {
+    async fn send(&self, target_id: NodeId, msg: RpcMessage) -> Result<(), NetworkError> {
+        let addr = self.peers.get(&target_id)
+            .ok_or_else(|| NetworkError::Connection(format!("Unknown peer: {}", target_id)))?;
+        
+        let stream = tokio::net::TcpStream::connect(addr).await?;
+        let (mut reader, mut writer) = stream.into_split();
+
+        let data = crate::codec::encode_message(&msg)?;
+        let len = data.len() as u32;
+        writer.write_all(&len.to_be_bytes()).await?;
+        writer.write_all(&data).await?;
+        writer.flush().await?;
+
+        let mut resp_len_buf = [0u8; 4];
+        reader.read_exact(&mut resp_len_buf).await?;
+        let resp_len = u32::from_be_bytes(resp_len_buf) as usize;
+        let mut resp_data = vec![0u8; resp_len];
+        reader.read_exact(&mut resp_data).await?;
+
+        let _resp_msg = crate::codec::decode_message(&resp_data)?;
+
+        Ok(())
     }
 
-    pub async fn register_node(&self, node_id: NodeId, tx: Tx) {
-        let mut nodes = self.nodes.lock().await;
-        nodes.insert(node_id, tx);
-    }
-
-    pub async fn unregister_node(&self, node_id: NodeId) {
-        let mut nodes = self.nodes.lock().await;
-        nodes.remove(&node_id);
-    }
-
-    pub async fn send(&self, target_id: NodeId, msg: RpcMessage) -> Result<(), NetworkError> {
-        let nodes = self.nodes.lock().await;
-        if let Some(tx) = nodes.get(&target_id) {
-            tx.send(msg)
-                .await
-                .map_err(|_| NetworkError::Connection("Channel closed".into()))?;
-            Ok(())
-        } else {
-            Err(NetworkError::Connection(format!(
-                "Node {} not found",
-                target_id
-            )))
-        }
-    }
-
-    pub async fn broadcast(&self, exclude_id: NodeId, msg: RpcMessage) -> Result<(), NetworkError> {
-        let nodes = self.nodes.lock().await;
-        for (id, tx) in nodes.iter() {
-            if *id != exclude_id {
-                let _ = tx.send(msg.clone()).await;
+    async fn broadcast(&self, exclude_id: NodeId, msg: RpcMessage) -> Result<(), NetworkError> {
+        for (&peer_id, _) in &self.peers {
+            if peer_id != exclude_id {
+                let _ = self.send(peer_id, msg.clone()).await;
             }
         }
         Ok(())
     }
 }
 
-impl Default for Transport {
-    fn default() -> Self {
-        Self::new()
+pub struct InMemoryTransport {
+    channels: Arc<tokio::sync::RwLock<HashMap<NodeId, mpsc::Sender<RpcMessage>>>>,
+}
+
+impl InMemoryTransport {
+    pub fn new() -> Self {
+        Self {
+            channels: Arc::new(tokio::sync::RwLock::new(HashMap::new())),
+        }
+    }
+
+    pub fn register(&self, id: NodeId, tx: mpsc::Sender<RpcMessage>) {
+        let mut channels = self.channels.blocking_write();
+        channels.insert(id, tx);
     }
 }
 
-pub struct TransportPair {
-    pub local_rx: Rx,
-    pub remote_tx: Tx,
-}
+impl Transport for InMemoryTransport {
+    async fn send(&self, target_id: NodeId, msg: RpcMessage) -> Result<(), NetworkError> {
+        let channels = self.channels.read().await;
+        let tx = channels.get(&target_id)
+            .ok_or_else(|| NetworkError::Connection(format!("Unknown peer: {}", target_id)))?;
+        
+        tx.send(msg).await
+            .map_err(|_| NetworkError::Connection("Channel closed".into()))?;
+        
+        Ok(())
+    }
 
-impl TransportPair {
-    pub fn new(buffer_size: usize) -> (Self, Self) {
-        let (tx1, rx1) = mpsc::channel(buffer_size);
-        let (tx2, rx2) = mpsc::channel(buffer_size);
-
-        let pair1 = TransportPair {
-            local_rx: rx1,
-            remote_tx: tx2,
-        };
-        let pair2 = TransportPair {
-            local_rx: rx2,
-            remote_tx: tx1,
-        };
-
-        (pair1, pair2)
+    async fn broadcast(&self, exclude_id: NodeId, msg: RpcMessage) -> Result<(), NetworkError> {
+        let channels = self.channels.read().await;
+        for (&id, tx) in channels.iter() {
+            if id != exclude_id {
+                let _ = tx.send(msg.clone()).await;
+            }
+        }
+        Ok(())
     }
 }
