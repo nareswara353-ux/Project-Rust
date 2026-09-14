@@ -67,37 +67,40 @@ impl RpcClient {
 
         let (mut reader, mut writer) = stream.into_split();
 
-        let data = bincode::serialize(&msg).map_err(|e| {
-            RaftError::Network(format!("Serialize request error: {}", e))
-        })?;
+        let data = bincode::serialize(&msg)
+            .map_err(|e| RaftError::Network(format!("Serialize request error: {}", e)))?;
 
         let len = data.len() as u32;
-        writer.write_all(&len.to_be_bytes()).await.map_err(|e| {
-            RaftError::Network(format!("Write length error: {}", e))
-        })?;
+        writer
+            .write_all(&len.to_be_bytes())
+            .await
+            .map_err(|e| RaftError::Network(format!("Write length error: {}", e)))?;
 
-        writer.write_all(&data).await.map_err(|e| {
-            RaftError::Network(format!("Write data error: {}", e))
-        })?;
+        writer
+            .write_all(&data)
+            .await
+            .map_err(|e| RaftError::Network(format!("Write data error: {}", e)))?;
 
-        writer.flush().await.map_err(|e| {
-            RaftError::Network(format!("Flush error: {}", e))
-        })?;
+        writer
+            .flush()
+            .await
+            .map_err(|e| RaftError::Network(format!("Flush error: {}", e)))?;
 
         let mut len_buf = [0u8; 4];
-        reader.read_exact(&mut len_buf).await.map_err(|e| {
-            RaftError::Network(format!("Read length error: {}", e))
-        })?;
+        reader
+            .read_exact(&mut len_buf)
+            .await
+            .map_err(|e| RaftError::Network(format!("Read length error: {}", e)))?;
         let resp_len = u32::from_be_bytes(len_buf) as usize;
 
         let mut resp_data = vec![0u8; resp_len];
-        reader.read_exact(&mut resp_data).await.map_err(|e| {
-            RaftError::Network(format!("Read data error: {}", e))
-        })?;
+        reader
+            .read_exact(&mut resp_data)
+            .await
+            .map_err(|e| RaftError::Network(format!("Read data error: {}", e)))?;
 
-        let resp_msg: RpcMessage = bincode::deserialize(&resp_data).map_err(|e| {
-            RaftError::Network(format!("Deserialize response error: {}", e))
-        })?;
+        let resp_msg: RpcMessage = bincode::deserialize(&resp_data)
+            .map_err(|e| RaftError::Network(format!("Deserialize response error: {}", e)))?;
 
         Ok(resp_msg)
     }
