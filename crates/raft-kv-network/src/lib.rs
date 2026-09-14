@@ -1,11 +1,4 @@
-use bytes::Bytes;
-use raft_kv_core::message::{
-    AppendEntriesRequest, AppendEntriesResponse, InstallSnapshotRequest, InstallSnapshotResponse,
-    RequestVoteRequest, RequestVoteResponse,
-};
-use raft_kv_core::NodeId;
 use serde::{Deserialize, Serialize};
-use std::fmt;
 use thiserror::Error;
 
 #[derive(Error, Debug)]
@@ -28,12 +21,12 @@ impl From<std::io::Error> for NetworkError {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum RpcMessage {
-    RequestVote(RequestVoteRequest),
-    RequestVoteResponse(RequestVoteResponse),
-    AppendEntries(AppendEntriesRequest),
-    AppendEntriesResponse(AppendEntriesResponse),
-    InstallSnapshot(InstallSnapshotRequest),
-    InstallSnapshotResponse(InstallSnapshotResponse),
+    RequestVote(raft_kv_core::message::RequestVoteRequest),
+    RequestVoteResponse(raft_kv_core::message::RequestVoteResponse),
+    AppendEntries(raft_kv_core::message::AppendEntriesRequest),
+    AppendEntriesResponse(raft_kv_core::message::AppendEntriesResponse),
+    InstallSnapshot(raft_kv_core::message::InstallSnapshotRequest),
+    InstallSnapshotResponse(raft_kv_core::message::InstallSnapshotResponse),
 }
 
 pub use raft_kv_core::message::*;
