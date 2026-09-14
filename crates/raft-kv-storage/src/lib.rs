@@ -8,7 +8,7 @@ pub mod store;
 pub mod wal;
 
 // Re-export main types for convenience
-pub use snapshot::Snapshot;
+pub use raft_kv_core::message::Snapshot;
 pub use store::KeyValueStore;
 pub use wal::WriteAheadLog;
 

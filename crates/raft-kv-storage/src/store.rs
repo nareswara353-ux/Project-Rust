@@ -1,4 +1,4 @@
-use crate::snapshot::Snapshot;
+use raft_kv_core::message::Snapshot;
 use raft_kv_core::{Command, Index, Term};
 use std::collections::HashMap;
 
