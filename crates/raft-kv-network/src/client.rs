@@ -1,4 +1,4 @@
-use crate::{NetworkError, RpcMessage};
+use crate::RpcMessage;
 use raft_kv_core::message::*;
 use raft_kv_core::RaftError;
 use std::time::Duration;

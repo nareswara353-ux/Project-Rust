@@ -1,5 +1,5 @@
 use crate::codec::decode_message;
-use crate::{NetworkError, RpcMessage};
+use crate::RpcMessage;
 use raft_kv_core::NodeId;
 use std::net::SocketAddr;
 use tokio::io::AsyncReadExt;

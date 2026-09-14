@@ -1,4 +1,4 @@
-use crate::{NetworkError, RpcMessage};
+use crate::RpcMessage;
 use bytes::Bytes;
 
 pub fn encode_message(msg: &RpcMessage) -> Result<Bytes, NetworkError> {
