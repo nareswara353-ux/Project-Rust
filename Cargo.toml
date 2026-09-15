@@ -10,30 +10,27 @@ members = [
 
 [workspace.package]
 version = "0.1.0"
-edition = "2021"
+edition = "2024"
 authors = ["Nano S3 Team"]
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/nareswara353-ux/Project-Rust"
 
 [workspace.dependencies]
-tokio = { version = "1.35", features = ["full"] }
+tokio = { version = "1.36", features = ["full"] }
 axum = { version = "0.7", features = ["macros"] }
-hyper = { version = "1.1", features = ["full"] }
+hyper = { version = "1.2", features = ["full"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-quick-xml = { version = "0.31", features = ["serialize", "deserialize"] }
-ring = "0.17"
+quick-xml = { version = "0.31", features = ["serialize", "overlapped-lists"] }
 thiserror = "1.0"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
-clap = { version = "4.4", features = ["derive"] }
+ring = "0.17"
 bytes = "1.5"
-http = "1.0"
+clap = { version = "4.5", features = ["derive"] }
 chrono = { version = "0.4", features = ["clock"] }
-base64 = "0.21"
-hex = "0.4"
-uuid = { version = "1.6", features = ["v4"] }
-tempfile = "3.9"
+uuid = { version = "1.8", features = ["v4"] }
+tempfile = "3.10"
 tokio-test = "0.4"
 
 [profile.release]
