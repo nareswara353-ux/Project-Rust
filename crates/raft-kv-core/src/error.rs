@@ -1,6 +1,5 @@
 use thiserror::Error;
 
-/// Main error type for Raft operations.
 #[derive(Error, Debug)]
 pub enum RaftError {
     #[error("Node is not the leader")]

@@ -31,7 +31,6 @@ impl<S: Storage + 'static> Raft<S> {
             (state.last_log_index(), state.last_log_term(), state.id)
         };
 
-        // Update state awal election
         {
             let mut state = self.state.write().await;
             state.current_term += 1;
@@ -79,26 +78,14 @@ impl<S: Storage + 'static> Raft<S> {
             tokio::spawn(async move {
                 match send_vote_request(peer_addr, req).await {
                     Ok(response) => {
-                        // LOGIKA DIPERBAIKI: Semua operasi state ada di dalam satu scope lock
                         let s = state_arc.write().await;
 
                         if response.vote_granted && s.role == Role::Candidate {
-                            // Hitung vote sambil masih memegang lock state
-                            // Catatan: Idealnya votes lock terpisah, tapi untuk aman kita urutkan saja
-                            // Atau lebih baik: cek quorum dulu baru update state
-
-                            // Karena kita butuh akses votes (async lock) dan s (async lock),
-                            // kita harus hati-hati urutan lock untuk hindari deadlock.
-                            // Strategi aman: Lepas s sebentar untuk hitung vote? Tidak, race condition.
-                            // Strategi terbaik: Hitung vote DULU, baru lock state untuk commit keputusan.
-
-                            drop(s); // Lepas lock state sebentar untuk hitung vote
-
+                            drop(s);
                             {
                                 let mut v = votes.write().await;
                                 *v += 1;
                                 if *v >= quorum {
-                                    // Re-acquire lock state untuk jadi leader
                                     let mut s_final = state_arc.write().await;
                                     if s_final.role == Role::Candidate {
                                         s_final.become_leader();
@@ -111,11 +98,7 @@ impl<S: Storage + 'static> Raft<S> {
                             }
                         }
 
-                        // Cek term lebih tinggi (Step down)
-                        // Kita harus re-acquire lock jika tadi sudah di-drop, atau pakai lock yang sama jika belum
-                        // Karena flow di atas sudah drop(s), kita lock ulang di sini khusus untuk step down
                         if response.term > new_term {
-                            // Pakai local var new_term sebagai pembanding awal, tapi harus cek state terkini
                             let mut s_step = state_arc.write().await;
                             if response.term > s_step.current_term {
                                 s_step.current_term = response.term;

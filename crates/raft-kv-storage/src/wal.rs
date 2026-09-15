@@ -4,9 +4,9 @@ use std::fs::{self, File, OpenOptions};
 use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::PathBuf;
 
-const MAGIC_NUMBER: u32 = 0x52414654; // "RAFT"
+const MAGIC_NUMBER: u32 = 0x52414654;
 const VERSION: u32 = 1;
-const HEADER_SIZE: usize = 16; // magic(4) + version(4) + length(4) + checksum(4)
+const HEADER_SIZE: usize = 16;
 
 pub struct WriteAheadLog {
     dir: PathBuf,
@@ -110,10 +110,6 @@ impl WriteAheadLog {
     }
 
     pub fn get(&mut self, index: u64) -> Result<Option<LogEntry>, RaftError> {
-        // Simplified: In a real impl, we'd seek to the specific offset for this index.
-        // For now, we iterate from the beginning of the current segment (or a known start).
-        // This is inefficient but works for small logs or as a placeholder.
-
         let path = self.segment_path(0); // Start from first segment
         if !path.exists() {
             return Ok(None);
@@ -165,8 +161,6 @@ impl WriteAheadLog {
     }
 
     pub fn truncate_after(&mut self, index: u64) -> Result<(), RaftError> {
-        // Truncation logic: reopen file, read valid entries up to index, rewrite file.
-        // This is a simplified implementation.
         let path = self.segment_path(0);
         if !path.exists() {
             return Ok(());
@@ -246,7 +240,6 @@ impl WriteAheadLog {
     }
 
     pub fn last_index(&self) -> u64 {
-        // Placeholder: should track actual last index written
         self.current_index
     }
 }
