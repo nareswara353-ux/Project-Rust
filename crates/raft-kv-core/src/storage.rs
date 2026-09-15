@@ -1,4 +1,4 @@
-use crate::error::{RaftError, Result};
+use crate::error::Result;
 use crate::message::{LogEntry, Snapshot};
 use async_trait::async_trait;
 
