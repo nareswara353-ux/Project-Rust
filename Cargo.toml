@@ -1,35 +1,40 @@
 [workspace]
 resolver = "2"
 members = [
-    "crates/raft-kv-core",
-    "crates/raft-kv-storage",
-    "crates/raft-kv-network",
-    "crates/raft-kv-cli",
+    "crates/s3-core",
+    "crates/s3-auth",
+    "crates/s3-storage",
+    "crates/s3-server",
+    "crates/s3-cli",
 ]
 
 [workspace.package]
 version = "0.1.0"
 edition = "2021"
-authors = ["Nareswara"]
-license = "MIT"
+authors = ["Nano S3 Team"]
+license = "MIT OR Apache-2.0"
 repository = "https://github.com/nareswara353-ux/Project-Rust"
-keywords = ["raft", "distributed-systems", "kv-store", "consensus"]
-categories = ["database-implementations", "network-programming"]
 
 [workspace.dependencies]
 tokio = { version = "1.35", features = ["full"] }
+axum = { version = "0.7", features = ["macros"] }
+hyper = { version = "1.1", features = ["full"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
+quick-xml = { version = "0.31", features = ["serialize", "deserialize"] }
+ring = "0.17"
 thiserror = "1.0"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
-bytes = { version = "1.5", features = ["serde"] }
-uuid = { version = "1.6", features = ["v4", "serde"] }
-sha2 = "0.10"
-crc32fast = "1.3"
 clap = { version = "4.4", features = ["derive"] }
-async-trait = "0.1"
-bincode = "1.3"
+bytes = "1.5"
+http = "1.0"
+chrono = { version = "0.4", features = ["clock"] }
+base64 = "0.21"
+hex = "0.4"
+uuid = { version = "1.6", features = ["v4"] }
+tempfile = "3.9"
+tokio-test = "0.4"
 
 [profile.release]
 lto = true
